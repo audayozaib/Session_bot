@@ -2098,115 +2098,209 @@ def main():
     application.add_handler(CommandHandler("groups", groups_command))
     
     # دالة الإلغاء العامة
-    async def cancel_any(update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """إلغاء أي محادثة قيد التشغيل."""
-        # تنظيف بيانات المستخدم المؤقتة
-        keys_to_remove = ["phone", "phone_code_hash", "code", "password", 
-                          "group_name", "group_count", "group_delay",
-                          "session_account_id", "session_phone", "session_phone_code_hash",
-                          "adding_account", "creating_groups"]
+# Main function
+def main():
+    """بدء البوت."""
+    try:
+        # التحقق من المتغيرات الأساسية
+        if not BOT_TOKEN:
+            logger.error("BOT_TOKEN is not set!")
+            print("ERROR: BOT_TOKEN is not set in environment variables!")
+            return
         
-        for key in keys_to_remove:
-            if key in context.user_data:
-                del context.user_data[key]
+        if API_ID == 0 or not API_HASH:
+            logger.error("API_ID or API_HASH is not set!")
+            print("ERROR: API_ID or API_HASH is not set in environment variables!")
+            return
         
-        # إنشاء لوحة مفاتيح مع الخيارات
-        keyboard = [
-            [InlineKeyboardButton("📱 حساباتي", callback_data="accounts")],
-            [InlineKeyboardButton("👥 المجموعات", callback_data="groups")],
-            [InlineKeyboardButton("📊 حالتي", callback_data="status")],
-            [InlineKeyboardButton("📊 إحصائياتي", callback_data="stats")],
-            [InlineKeyboardButton("⬅️ العودة للقائمة الرئيسية", callback_data="main_menu")]
-        ]
+        # طباعة معلومات البداية
+        print("=" * 50)
+        print("🤖 Telegram Account Manager Bot")
+        print("=" * 50)
+        print(f"🔑 Bot Token: {BOT_TOKEN[:10]}...")
+        print(f"👤 Owner ID: {OWNER_ID}")
+        print(f"🆔 API ID: {API_ID}")
+        print(f"🔐 API Hash: {API_HASH[:10]}...")
+        print(f"🗄️ MongoDB URI: {MONGO_URI[:20]}...")
+        print("=" * 50)
         
-        await send_message(
-            update,
-            "❌ <b>تم إلغاء العملية</b>\n\n"
-            "تم إلغاء العملية الحالية بنجاح.\n\n"
-            "يمكنك اختيار خيار آخر من الأزرار أدناه:",
-            reply_markup=InlineKeyboardMarkup(keyboard)
+        # التحقق من الاتصال بقاعدة البيانات
+        try:
+            client.admin.command('ping')
+            logger.info("✅ Connected to MongoDB successfully")
+            print("✅ Connected to MongoDB successfully")
+        except Exception as e:
+            logger.error(f"❌ Failed to connect to MongoDB: {e}")
+            print(f"❌ Failed to connect to MongoDB: {e}")
+            return
+        
+        # إنشاء التطبيق
+        logger.info("Creating application...")
+        print("🔧 Creating application...")
+        application = Application.builder().token(BOT_TOKEN).build()
+        
+        # دالة الإلغاء العامة
+        async def cancel_any(update: Update, context: ContextTypes.DEFAULT_TYPE):
+            """إلغاء أي محادثة قيد التشغيل."""
+            # تنظيف بيانات المستخدم المؤقتة
+            keys_to_remove = ["phone", "phone_code_hash", "code", "password", 
+                              "group_name", "group_count", "group_delay",
+                              "session_account_id", "session_phone", "session_phone_code_hash",
+                              "adding_account", "creating_groups"]
+            
+            for key in keys_to_remove:
+                if key in context.user_data:
+                    del context.user_data[key]
+            
+            # إنشاء لوحة مفاتيح مع الخيارات
+            keyboard = [
+                [InlineKeyboardButton("📱 حساباتي", callback_data="accounts")],
+                [InlineKeyboardButton("👥 المجموعات", callback_data="groups")],
+                [InlineKeyboardButton("📊 حالتي", callback_data="status")],
+                [InlineKeyboardButton("📊 إحصائياتي", callback_data="stats")],
+                [InlineKeyboardButton("⬅️ العودة للقائمة الرئيسية", callback_data="main_menu")]
+            ]
+            
+            await send_message(
+                update,
+                "❌ <b>تم إلغاء العملية</b>\n\n"
+                "تم إلغاء العملية الحالية بنجاح.\n\n"
+                "يمكنك اختيار خيار آخر من الأزرار أدناه:",
+                reply_markup=InlineKeyboardMarkup(keyboard)
+            )
+            return ConversationHandler.END
+        
+        # إضافة معالجات الأوامر
+        logger.info("Adding command handlers...")
+        print("📝 Adding command handlers...")
+        application.add_handler(CommandHandler("start", start))
+        application.add_handler(CommandHandler("help", help_command))
+        application.add_handler(CommandHandler("status", status_command))
+        application.add_handler(CommandHandler("stats", stats_command))
+        
+        # أوامر المالك
+        application.add_handler(CommandHandler("approve", approve_command))
+        application.add_handler(CommandHandler("reject", reject_command))
+        application.add_handler(CommandHandler("users", users_command))
+        application.add_handler(CommandHandler("admin_stats", admin_stats_command))
+        application.add_handler(CommandHandler("logs", logs_command))
+        application.add_handler(CommandHandler("settings", settings_command))
+        
+        # إدارة الحسابات
+        application.add_handler(CommandHandler("accounts", accounts_command))
+        
+        # إنشاء المجموعات
+        application.add_handler(CommandHandler("groups", groups_command))
+        
+        # معالج محادثة الحساب
+        account_conv_handler = ConversationHandler(
+            entry_points=[
+                CommandHandler("add_account", add_account_start),
+                CallbackQueryHandler(button_callback, pattern="^add_account$"),
+            ],
+            states={
+                ACCOUNT_PHONE: [
+                    MessageHandler(filters.TEXT & ~filters.COMMAND, add_account_phone),
+                    CommandHandler("cancel", cancel_any)
+                ],
+                ACCOUNT_CODE: [
+                    MessageHandler(filters.TEXT & ~filters.COMMAND, add_account_code),
+                    CommandHandler("cancel", cancel_any)
+                ],
+                ACCOUNT_PASSWORD: [
+                    MessageHandler(filters.TEXT & ~filters.COMMAND, add_account_password),
+                    CommandHandler("cancel", cancel_any)
+                ],
+            },
+            fallbacks=[CommandHandler("cancel", cancel_any)],
+            per_message=True,
+            allow_reentry=True,
+            name="account_conversation"
         )
-        return ConversationHandler.END
-    
-    # معالج محادثة الحساب
-    account_conv_handler = ConversationHandler(
-        entry_points=[
-            CommandHandler("add_account", add_account_start),
-            CallbackQueryHandler(button_callback, pattern="^add_account$"),
-        ],
-        states={
-            ACCOUNT_PHONE: [
-                MessageHandler(filters.TEXT & ~filters.COMMAND, add_account_phone),
-                CommandHandler("cancel", cancel_any)
+        
+        # معالج محادثة إنشاء المجموعات
+        group_conv_handler = ConversationHandler(
+            entry_points=[
+                CommandHandler("create_groups", create_groups_start),
+                CallbackQueryHandler(button_callback, pattern="^create_groups$"),
             ],
-            ACCOUNT_CODE: [
-                MessageHandler(filters.TEXT & ~filters.COMMAND, add_account_code),
-                CommandHandler("cancel", cancel_any)
-            ],
-            ACCOUNT_PASSWORD: [
-                MessageHandler(filters.TEXT & ~filters.COMMAND, add_account_password),
-                CommandHandler("cancel", cancel_any)
-            ],
-        },
-        fallbacks=[CommandHandler("cancel", cancel_any)],
-        per_message=True,
-        allow_reentry=True,  # السماح بإعادة الدخول
-        name="account_conversation"  # اسم فريد للمحادثة
-    )
+            states={
+                GROUP_NAME: [
+                    MessageHandler(filters.TEXT & ~filters.COMMAND, create_groups_name),
+                    CommandHandler("cancel", cancel_any)
+                ],
+                GROUP_COUNT: [
+                    MessageHandler(filters.TEXT & ~filters.COMMAND, create_groups_count),
+                    CommandHandler("cancel", cancel_any)
+                ],
+                GROUP_DELAY: [
+                    MessageHandler(filters.TEXT & ~filters.COMMAND, create_groups_delay),
+                    CommandHandler("cancel", cancel_any)
+                ],
+            },
+            fallbacks=[CommandHandler("cancel", cancel_any)],
+            per_message=True,
+            allow_reentry=True,
+            name="group_conversation"
+        )
+        
+        # إضافة معالجات المحادثة
+        application.add_handler(account_conv_handler)
+        application.add_handler(group_conv_handler)
+        
+        # معالج استدعاء الأزرار
+        application.add_handler(CallbackQueryHandler(button_callback))
+        
+        # معالج الأخطاء
+        application.add_error_handler(error_handler)
+        
+        # رسالة بدء التشغيل
+        logger.info("Starting Telegram Account Manager Bot...")
+        print("🚀 Starting bot...")
+        
+        # تشغيل البوت مع إعدادات محسنة
+        print("⏳ Bot is running... Press Ctrl+C to stop")
+        print("=" * 50)
+        
+        application.run_polling(
+            drop_pending_updates=True,
+            allowed_updates=Update.ALL_TYPES,
+            timeout=30,
+            read_timeout=30,
+            write_timeout=30,
+            connect_timeout=30,
+            pool_timeout=30
+        )
+        
+    except KeyboardInterrupt:
+        logger.info("Bot stopped by user")
+        print("\n🛑 Bot stopped by user")
+    except Exception as e:
+        logger.error(f"Error running bot: {e}", exc_info=True)
+        print(f"❌ Error running bot: {e}")
+        import traceback
+        traceback.print_exc()
+    finally:
+        logger.info("Bot shutdown complete")
+        print("🔚 Bot shutdown complete")
+
+# إضافة نقطة دخول رئيسية
+if __name__ == "__main__":
+    # تشغيل البوت في حلقة لمنع الإغلاق
+    import sys
+    import signal
     
-    # معالج محادثة إنشاء المجموعات
-    group_conv_handler = ConversationHandler(
-        entry_points=[
-            CommandHandler("create_groups", create_groups_start),
-            CallbackQueryHandler(button_callback, pattern="^create_groups$"),
-        ],
-        states={
-            GROUP_NAME: [
-                MessageHandler(filters.TEXT & ~filters.COMMAND, create_groups_name),
-                CommandHandler("cancel", cancel_any)
-            ],
-            GROUP_COUNT: [
-                MessageHandler(filters.TEXT & ~filters.COMMAND, create_groups_count),
-                CommandHandler("cancel", cancel_any)
-            ],
-            GROUP_DELAY: [
-                MessageHandler(filters.TEXT & ~filters.COMMAND, create_groups_delay),
-                CommandHandler("cancel", cancel_any)
-            ],
-        },
-        fallbacks=[CommandHandler("cancel", cancel_any)],
-        per_message=True,
-        allow_reentry=True,  # السماح بإعادة الدخول
-        name="group_conversation"  # اسم فريد للمحادثة
-    )
+    def signal_handler(sig, frame):
+        print('\n🛑 Received interrupt signal, shutting down...')
+        sys.exit(0)
     
-    # إضافة معالجات المحادثة
-    application.add_handler(account_conv_handler)
-    application.add_handler(group_conv_handler)
-    
-    # معالج استدعاء الأزرار (يجب أن يكون بعد معالجات المحادثة)
-    application.add_handler(CallbackQueryHandler(button_callback))
-    
-    # معالج الأخطاء
-    application.add_error_handler(error_handler)
-    
-    # رسالة بدء التشغيل
-    logger.info("Starting Telegram Account Manager Bot...")
-    logger.info(f"Bot Token: {BOT_TOKEN[:10]}...")
-    logger.info(f"Owner ID: {OWNER_ID}")
-    logger.info(f"API ID: {API_ID}")
-    logger.info(f"API Hash: {API_HASH[:10]}...")
+    # تسجيل معالج الإشارات
+    signal.signal(signal.SIGINT, signal_handler)
+    signal.signal(signal.SIGTERM, signal_handler)
     
     # تشغيل البوت
     try:
-        application.run_polling(
-            drop_pending_updates=True,  # تجاهل التحديثات المعلقة
-            allowed_updates=Update.ALL_TYPES,
-            timeout=30
-        )
-    except KeyboardInterrupt:
-        logger.info("Bot stopped by user")
+        main()
     except Exception as e:
-        logger.error(f"Error running bot: {e}")
-    finally:
-        logger.info("Bot shutdown complete")
+        print(f"Fatal error: {e}")
+        sys.exit(1)
