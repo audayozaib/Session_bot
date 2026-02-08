@@ -309,7 +309,8 @@ async def _show_account_details(update: Update, context: ContextTypes.DEFAULT_TY
 
     except Exception as e: logger.error(f"Error showing account details: {e}"); await send_message(update, f"❌ حدث خطأ: {str(e)}")
     finally:
-        if client.is_connected(): await client.disconnect()
+        if client.is_connected():
+            await client.disconnect()
 
 async def _toggle_monitoring(update: Update, context: ContextTypes.DEFAULT_TYPE, account_id_str: str):
     """تبديل حالة المراقبة لحساب معين."""
@@ -415,7 +416,8 @@ async def add_account_code(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await wait_msg.edit_text(f"❌ خطأ: {str(e)}")
         return ConversationHandler.END
     finally:
-        if client.is_connected(): await client.disconnect()
+        if client.is_connected():
+            await client.disconnect()
 
 async def add_account_password(update: Update, context: ContextTypes.DEFAULT_TYPE):
     password = update.message.text.strip()
@@ -445,7 +447,8 @@ async def add_account_password(update: Update, context: ContextTypes.DEFAULT_TYP
         await send_message(update, f"❌ خطأ في كلمة المرور: {str(e)}")
         return ConversationHandler.END
     finally:
-        if client.is_connected(): await client.disconnect()
+        if client.is_connected():
+            await client.disconnect()
 
 async def cancel_action(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """إلغاء أي محادثة."""
@@ -542,7 +545,9 @@ async def _create_groups_task(update: Update, context: ContextTypes.DEFAULT_TYPE
         )
 
     except Exception as e: logger.error(f"Error in group creation task: {e}")
-    finally: if client.is_connected(): await client.disconnect()
+    finally:
+        if client.is_connected():
+            await client.disconnect()
 
 # --- Session Monitoring Background Task ---
 async def session_monitoring_task(app: Application):
@@ -586,7 +591,9 @@ async def session_monitoring_task(app: Application):
                     accounts_collection.update_one({"_id": acc["_id"]}, {"$set": {"known_session_hashes": list(current_hashes)}})
 
                 except Exception as e: logger.error(f"Error monitoring account {acc.get('first_name')}: {e}")
-                finally: if client.is_connected(): await client.disconnect()
+                finally:
+                    if client.is_connected():
+                        await client.disconnect()
             
             await asyncio.sleep(300) # Check every 5 minutes
 
