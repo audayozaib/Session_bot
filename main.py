@@ -5,6 +5,10 @@ import logging
 import datetime
 import random
 import string
+import sys
+import signal
+import traceback
+import uuid
 from typing import Dict, List, Optional, Tuple, Union
 from functools import wraps
 from io import BytesIO
@@ -805,7 +809,6 @@ async def add_account_phone(update: Update, context: ContextTypes.DEFAULT_TYPE):
         print("📡 Sending code request...")
         
         # استخدام جلسة مؤقتة باسم فريد
-        import uuid
         session_name = f"temp_session_{update.effective_user.id}_{uuid.uuid4().hex[:8]}"
         
         # إنشاء العميل مع إعدادات محسنة
@@ -1403,15 +1406,7 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # زر إضافة حساب
     elif data == "add_account":
         # بدء محادثة إضافة الحساب
-        await query.message.reply_text(
-            "📱 <b>إضافة حساب جديد</b>\n\n"
-            "يرجى إدخال رقم هاتف حساب تيليجرام الذي تريد إضافته.\n\n"
-            "تضمين رمز البلد، على سبيل المثال، +1234567890\n\n"
-            "أرسل /cancel لإلغاء هذه العملية.",
-            parse_mode=ParseMode.HTML
-        )
-        context.user_data["adding_account"] = True
-        return ACCOUNT_PHONE
+        return await add_account_start(update, context)
     
     # زر إدارة الحساب
     elif data.startswith("manage_account_"):
@@ -1628,16 +1623,7 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # زر إنشاء مجموعات
     elif data == "create_groups":
         # بدء محادثة إنشاء المجموعات
-        await query.message.reply_text(
-            "👥 <b>إنشاء مجموعات</b>\n\n"
-            "دعنا نكوين إعدادات إنشاء المجموعات الخاصة بك.\n\n"
-            "أولاً، ماذا تريد أن تسمي مجموعاتك؟\n\n"
-            "يمكنك استخدام نمط مثل 'مجموعتي' وسينشئ البوت 'مجموعتي 1'، 'مجموعتي 2'، إلخ.\n\n"
-            "أرسل /cancel لإلغاء هذه العملية.",
-            parse_mode=ParseMode.HTML
-        )
-        context.user_data["creating_groups"] = True
-        return GROUP_NAME
+        return await create_groups_start(update, context)
     
     # استخدام جميع الحسابات لإنشاء المجموعات
     elif data == "use_all_accounts":
@@ -2092,34 +2078,6 @@ async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> N
         logger.error(f"Failed to send error notification to owner: {e}")
 
 # Main function
-# Main function
-def main():
-    """بدء البوت."""
-    # إنشاء التطبيق
-    application = Application.builder().token(BOT_TOKEN).build()
-    
-    # إضافة معالجات الأوامر
-    application.add_handler(CommandHandler("start", start))
-    application.add_handler(CommandHandler("help", help_command))
-    application.add_handler(CommandHandler("status", status_command))
-    application.add_handler(CommandHandler("stats", stats_command))
-    
-    # أوامر المالك
-    application.add_handler(CommandHandler("approve", approve_command))
-    application.add_handler(CommandHandler("reject", reject_command))
-    application.add_handler(CommandHandler("users", users_command))
-    application.add_handler(CommandHandler("admin_stats", admin_stats_command))
-    application.add_handler(CommandHandler("logs", logs_command))
-    application.add_handler(CommandHandler("settings", settings_command))
-    
-    # إدارة الحسابات
-    application.add_handler(CommandHandler("accounts", accounts_command))
-    
-    # إنشاء المجموعات
-    application.add_handler(CommandHandler("groups", groups_command))
-    
-    # دالة الإلغاء العامة
-# Main function
 def main():
     """بدء البوت."""
     try:
@@ -2299,7 +2257,6 @@ def main():
     except Exception as e:
         logger.error(f"Error running bot: {e}", exc_info=True)
         print(f"❌ Error running bot: {e}")
-        import traceback
         traceback.print_exc()
     finally:
         logger.info("Bot shutdown complete")
@@ -2308,9 +2265,6 @@ def main():
 # إضافة نقطة دخول رئيسية
 if __name__ == "__main__":
     # تشغيل البوت في حلقة لمنع الإغلاق
-    import sys
-    import signal
-    
     def signal_handler(sig, frame):
         print('\n🛑 Received interrupt signal, shutting down...')
         sys.exit(0)
