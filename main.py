@@ -154,12 +154,21 @@ def approved_only(func):
     async def wrapped(update: Update, context: ContextTypes.DEFAULT_TYPE, *args, **kwargs):
         user_id = update.effective_user.id
         if not is_approved(user_id):
-            await update.message.reply_text(
-                "⛔ <b>الوصول مرفوض</b>\n\n"
-                "ليس لديك إذن لاستخدام هذا البوت. "
-                "قد يكون طلب الوصول الخاص بك لا يزال معلقًا أو مرفوضًا.",
-                parse_mode=ParseMode.HTML
-            )
+            # استخدام دالة مساعدة للرد على الرسالة أو الاستدعاء
+            if update.message:
+                await update.message.reply_text(
+                    "⛔ <b>الوصول مرفوض</b>\n\n"
+                    "ليس لديك إذن لاستخدام هذا البوت. "
+                    "قد يكون طلب الوصول الخاص بك لا يزال معلقًا أو مرفوضًا.",
+                    parse_mode=ParseMode.HTML
+                )
+            elif update.callback_query:
+                await update.callback_query.message.reply_text(
+                    "⛔ <b>الوصول مرفوض</b>\n\n"
+                    "ليس لديك إذن لاستخدام هذا البوت. "
+                    "قد يكون طلب الوصول الخاص بك لا يزال معلقًا أو مرفوضًا.",
+                    parse_mode=ParseMode.HTML
+                )
             return
         return await func(update, context, *args, **kwargs)
     return wrapped
@@ -170,14 +179,38 @@ def owner_only(func):
     async def wrapped(update: Update, context: ContextTypes.DEFAULT_TYPE, *args, **kwargs):
         user_id = update.effective_user.id
         if not is_owner(user_id):
-            await update.message.reply_text(
-                "⛔ <b>الوصول مرفوض</b>\n\n"
-                "هذا الأمر متاح فقط لمالك البوت.",
-                parse_mode=ParseMode.HTML
-            )
+            # استخدام دالة مساعدة للرد على الرسالة أو الاستدعاء
+            if update.message:
+                await update.message.reply_text(
+                    "⛔ <b>الوصول مرفوض</b>\n\n"
+                    "هذا الأمر متاح فقط لمالك البوت.",
+                    parse_mode=ParseMode.HTML
+                )
+            elif update.callback_query:
+                await update.callback_query.message.reply_text(
+                    "⛔ <b>الوصول مرفوض</b>\n\n"
+                    "هذا الأمر متاح فقط لمالك البوت.",
+                    parse_mode=ParseMode.HTML
+                )
             return
         return await func(update, context, *args, **kwargs)
     return wrapped
+
+# Helper function for sending messages
+async def send_message(update: Update, text: str, reply_markup=None):
+    """دالة مساعدة لإرسال رسالة، معالجة كل من الرسائل والاستدعاءات."""
+    if update.message:
+        await update.message.reply_text(
+            text=text,
+            reply_markup=reply_markup,
+            parse_mode=ParseMode.HTML
+        )
+    elif update.callback_query:
+        await update.callback_query.message.reply_text(
+            text=text,
+            reply_markup=reply_markup,
+            parse_mode=ParseMode.HTML
+        )
 
 # Command handlers
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -219,41 +252,41 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
             f"استخدم /approve {user_id} للموافقة أو /reject {user_id} للرفض."
         )
         
-        await update.message.reply_text(
+        await send_message(
+            update,
             f"👋 مرحباً، {user.first_name}!\n\n"
             f"مرحباً بك في بوت إدارة حسابات تيليجرام.\n\n"
             f"⏳ تم إرسال طلب الوصول الخاص بك إلى مالك البوت للموافقة.\n"
             f"سيتم إعلامك بمجرد مراجعة طلبك.\n\n"
             f"شكراً لصبرك!",
-            reply_markup=InlineKeyboardMarkup(keyboard),
-            parse_mode=ParseMode.HTML
+            reply_markup=InlineKeyboardMarkup(keyboard)
         )
     else:
         status = existing_user.get("access_status", "pending")
         
         if status == "pending":
-            await update.message.reply_text(
+            await send_message(
+                update,
                 f"👋 مرحباً، {user.first_name}!\n\n"
                 f"طلب الوصول الخاص بك لا يزال معلقًا في انتظار الموافقة.\n"
                 f"سيتم إعلامك بمجرد مراجعة مالك البوت لطلبك.\n\n"
                 f"شكراً لصبرك!",
-                reply_markup=InlineKeyboardMarkup(keyboard),
-                parse_mode=ParseMode.HTML
+                reply_markup=InlineKeyboardMarkup(keyboard)
             )
         elif status == "approved":
-            await update.message.reply_text(
+            await send_message(
+                update,
                 f"👋 مرحباً بعودتك، {user.first_name}!\n\n"
                 f"لديك وصول معتمد للبوت.\n\n"
                 f"استخدم الأزرار أدناه للتنقل.",
-                reply_markup=InlineKeyboardMarkup(keyboard),
-                parse_mode=ParseMode.HTML
+                reply_markup=InlineKeyboardMarkup(keyboard)
             )
         elif status == "rejected":
-            await update.message.reply_text(
+            await send_message(
+                update,
                 f"👋 مرحباً، {user.first_name}!\n\n"
                 f"تم رفض طلب الوصول الخاص بك.\n\n"
-                f"إذا كنت تعتقد أن هذا خطأ، يرجى الاتصال بمالك البوت.",
-                parse_mode=ParseMode.HTML
+                f"إذا كنت تعتقد أن هذا خطأ، يرجى الاتصال بمالك البوت."
             )
 
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -262,11 +295,11 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     status = get_user_status(user_id)
     
     if status != "approved":
-        await update.message.reply_text(
+        await send_message(
+            update,
             "⛔ <b>الوصول مرفوض</b>\n\n"
             "ليس لديك إذن لاستخدام هذا البوت. "
-            "قد يكون طلب الوصول الخاص بك لا يزال معلقًا أو مرفوضًا.",
-            parse_mode=ParseMode.HTML
+            "قد يكون طلب الوصول الخاص بك لا يزال معلقًا أو مرفوضًا."
         )
         return
     
@@ -290,7 +323,7 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "⚙️ /settings - تكوين إعدادات البوت\n"
         )
     
-    await update.message.reply_text(help_text, parse_mode=ParseMode.HTML)
+    await send_message(update, help_text)
 
 @approved_only
 async def status_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -299,11 +332,11 @@ async def status_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = users_collection.find_one({"user_id": user_id})
     
     if not user:
-        await update.message.reply_text(
+        await send_message(
+            update,
             "❌ <b>خطأ</b>\n\n"
             "لم يتم العثور على حساب المستخدم الخاص بك في قاعدة البيانات. "
-            "يرجى محاولة /start للتسجيل مرة أخرى.",
-            parse_mode=ParseMode.HTML
+            "يرجى محاولة /start للتسجيل مرة أخرى."
         )
         return
     
@@ -328,10 +361,10 @@ async def status_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"📱 <b>الحسابات المرتبطة:</b> {accounts_count}\n"
     )
     
-    await update.message.reply_text(
+    await send_message(
+        update,
         status_text,
-        reply_markup=InlineKeyboardMarkup(keyboard),
-        parse_mode=ParseMode.HTML
+        reply_markup=InlineKeyboardMarkup(keyboard)
     )
 
 @approved_only
@@ -348,12 +381,12 @@ async def stats_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     ]
     
     if total_accounts == 0:
-        await update.message.reply_text(
+        await send_message(
+            update,
             "📊 <b>إحصائياتك</b>\n\n"
             "ليس لديك أي حسابات مرتبطة حتى الآن.\n\n"
             "استخدم /accounts لإضافة حسابك الأول.",
-            reply_markup=InlineKeyboardMarkup(keyboard),
-            parse_mode=ParseMode.HTML
+            reply_markup=InlineKeyboardMarkup(keyboard)
         )
         return
     
@@ -376,10 +409,10 @@ async def stats_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"👥 <b>المجموعات المنشأة:</b> {total_groups}\n"
     )
     
-    await update.message.reply_text(
+    await send_message(
+        update,
         stats_text,
-        reply_markup=InlineKeyboardMarkup(keyboard),
-        parse_mode=ParseMode.HTML
+        reply_markup=InlineKeyboardMarkup(keyboard)
     )
 
 # Owner commands
@@ -387,30 +420,30 @@ async def stats_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def approve_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """معالجة أمر /approve."""
     if not context.args:
-        await update.message.reply_text(
+        await send_message(
+            update,
             "❌ <b>خطأ</b>\n\n"
             "يرجى تقديم معرف مستخدم للموافقة.\n\n"
-            "الاستخدام: /approve [user_id]",
-            parse_mode=ParseMode.HTML
+            "الاستخدام: /approve [user_id]"
         )
         return
     
     try:
         user_id = int(context.args[0])
     except ValueError:
-        await update.message.reply_text(
+        await send_message(
+            update,
             "❌ <b>خطأ</b>\n\n"
-            "معرف مستخدم غير صالح. يرجى تقديم معرف مستخدم رقمي.",
-            parse_mode=ParseMode.HTML
+            "معرف مستخدم غير صالح. يرجى تقديم معرف مستخدم رقمي."
         )
         return
     
     user = users_collection.find_one({"user_id": user_id})
     if not user:
-        await update.message.reply_text(
+        await send_message(
+            update,
             "❌ <b>خطأ</b>\n\n"
-            f"لم يتم العثور على المستخدم بالمعرف {user_id} في قاعدة البيانات.",
-            parse_mode=ParseMode.HTML
+            f"لم يتم العثور على المستخدم بالمعرف {user_id} في قاعدة البيانات."
         )
         return
     
@@ -431,41 +464,41 @@ async def approve_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"يمكنك الآن استخدام البوت. استخدم /help لرؤية الأوامر المتاحة.",
     )
     
-    await update.message.reply_text(
+    await send_message(
+        update,
         f"✅ <b>نجح</b>\n\n"
         f"تمت الموافقة على المستخدم {user_id}.\n\n"
-        f"تم إعلامهم بالموافقة.",
-        parse_mode=ParseMode.HTML
+        f"تم إعلامهم بالموافقة."
     )
 
 @owner_only
 async def reject_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """معالجة أمر /reject."""
     if not context.args:
-        await update.message.reply_text(
+        await send_message(
+            update,
             "❌ <b>خطأ</b>\n\n"
             "يرجى تقديم معرف مستخدم للرفض.\n\n"
-            "الاستخدام: /reject [user_id]",
-            parse_mode=ParseMode.HTML
+            "الاستخدام: /reject [user_id]"
         )
         return
     
     try:
         user_id = int(context.args[0])
     except ValueError:
-        await update.message.reply_text(
+        await send_message(
+            update,
             "❌ <b>خطأ</b>\n\n"
-            "معرف مستخدم غير صالح. يرجى تقديم معرف مستخدم رقمي.",
-            parse_mode=ParseMode.HTML
+            "معرف مستخدم غير صالح. يرجى تقديم معرف مستخدم رقمي."
         )
         return
     
     user = users_collection.find_one({"user_id": user_id})
     if not user:
-        await update.message.reply_text(
+        await send_message(
+            update,
             "❌ <b>خطأ</b>\n\n"
-            f"لم يتم العثور على المستخدم بالمعرف {user_id} في قاعدة البيانات.",
-            parse_mode=ParseMode.HTML
+            f"لم يتم العثور على المستخدم بالمعرف {user_id} في قاعدة البيانات."
         )
         return
     
@@ -486,11 +519,11 @@ async def reject_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"إذا كنت تعتقد أن هذا خطأ، يرجى الاتصال بمالك البوت.",
     )
     
-    await update.message.reply_text(
+    await send_message(
+        update,
         f"❌ <b>نجح</b>\n\n"
         f"تم رفض المستخدم {user_id}.\n\n"
-        f"تم إعلامهم بالرفض.",
-        parse_mode=ParseMode.HTML
+        f"تم إعلامهم بالرفض."
     )
 
 @owner_only
@@ -499,10 +532,10 @@ async def users_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     users = list(users_collection.find({}))
     
     if not users:
-        await update.message.reply_text(
+        await send_message(
+            update,
             "📊 <b>المستخدمون</b>\n\n"
-            "لم يتم العثور على مستخدمين في قاعدة البيانات.",
-            parse_mode=ParseMode.HTML
+            "لم يتم العثور على مستخدمين في قاعدة البيانات."
         )
         return
     
@@ -526,9 +559,9 @@ async def users_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if len(users_text) > 4000:
         chunks = [users_text[i:i+4000] for i in range(0, len(users_text), 4000)]
         for chunk in chunks:
-            await update.message.reply_text(chunk, parse_mode=ParseMode.HTML)
+            await send_message(update, chunk)
     else:
-        await update.message.reply_text(users_text, parse_mode=ParseMode.HTML)
+        await send_message(update, users_text)
 
 @owner_only
 async def admin_stats_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -557,7 +590,7 @@ async def admin_stats_command(update: Update, context: ContextTypes.DEFAULT_TYPE
         f"   مراقبة الجلسات: {'مفعلة' if monitoring_enabled else 'معطلة'}\n"
     )
     
-    await update.message.reply_text(stats_text, parse_mode=ParseMode.HTML)
+    await send_message(update, stats_text)
 
 @owner_only
 async def logs_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -565,10 +598,10 @@ async def logs_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     logs = list(logs_collection.find({}).sort("timestamp", -1).limit(50))
     
     if not logs:
-        await update.message.reply_text(
+        await send_message(
+            update,
             "📊 <b>سجلات النظام</b>\n\n"
-            "لم يتم العثور على سجلات في قاعدة البيانات.",
-            parse_mode=ParseMode.HTML
+            "لم يتم العثور على سجلات في قاعدة البيانات."
         )
         return
     
@@ -592,9 +625,9 @@ async def logs_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if len(logs_text) > 4000:
         chunks = [logs_text[i:i+4000] for i in range(0, len(logs_text), 4000)]
         for chunk in chunks:
-            await update.message.reply_text(chunk, parse_mode=ParseMode.HTML)
+            await send_message(update, chunk)
     else:
-        await update.message.reply_text(logs_text, parse_mode=ParseMode.HTML)
+        await send_message(update, logs_text)
 
 @owner_only
 async def settings_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -618,10 +651,10 @@ async def settings_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"استخدم الزر أدناه لتبديل مراقبة الجلسات."
     )
     
-    await update.message.reply_text(
+    await send_message(
+        update,
         settings_text,
-        reply_markup=reply_markup,
-        parse_mode=ParseMode.HTML
+        reply_markup=reply_markup
     )
 
 # Account management
@@ -640,12 +673,12 @@ async def accounts_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         keyboard.insert(0, [InlineKeyboardButton("➕ إضافة حساب", callback_data="add_account")])
         reply_markup = InlineKeyboardMarkup(keyboard)
         
-        await update.message.reply_text(
+        await send_message(
+            update,
             "📱 <b>حساباتك</b>\n\n"
             "ليس لديك أي حسابات مرتبطة حتى الآن.\n\n"
             "استخدم الزر أدناه لإضافة حسابك الأول.",
-            reply_markup=reply_markup,
-            parse_mode=ParseMode.HTML
+            reply_markup=reply_markup
         )
         return
     
@@ -691,21 +724,21 @@ async def accounts_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     reply_markup = InlineKeyboardMarkup(keyboard)
     
-    await update.message.reply_text(
+    await send_message(
+        update,
         accounts_text,
-        reply_markup=reply_markup,
-        parse_mode=ParseMode.HTML
+        reply_markup=reply_markup
     )
 
 # Account conversation handlers
 async def add_account_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """بدء عملية إضافة الحساب."""
-    await update.message.reply_text(
+    await send_message(
+        update,
         "📱 <b>إضافة حساب جديد</b>\n\n"
         "يرجى إدخال رقم هاتف حساب تيليجرام الذي تريد إضافته.\n\n"
         "تضمين رمز البلد، على سبيل المثال، +1234567890\n\n"
-        "أرسل /cancel لإلغاء هذه العملية.",
-        parse_mode=ParseMode.HTML
+        "أرسل /cancel لإلغاء هذه العملية."
     )
     return ACCOUNT_PHONE
 
@@ -715,12 +748,12 @@ async def add_account_phone(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     # التحقق الأساسي
     if not phone.startswith('+') or not phone[1:].isdigit():
-        await update.message.reply_text(
+        await send_message(
+            update,
             "❌ <b>رقم هاتف غير صالح</b>\n\n"
             "يرجى إدخال رقم هاتف صالح مع رمز البلد.\n\n"
             "مثال: +1234567890\n\n"
-            "أرسل /cancel لإلغاء هذه العملية.",
-            parse_mode=ParseMode.HTML
+            "أرسل /cancel لإلغاء هذه العملية."
         )
         return ACCOUNT_PHONE
     
@@ -745,23 +778,23 @@ async def add_account_phone(update: Update, context: ContextTypes.DEFAULT_TYPE):
         # تخزين تجزئة رمز الهاتف للتحقق
         context.user_data["phone_code_hash"] = result.phone_code_hash
         
-        await update.message.reply_text(
+        await send_message(
+            update,
             "✅ <b>تم إرسال رمز التحقق</b>\n\n"
             "تم إرسال رمز التحقق إلى حساب تيليجرام الخاص بك.\n\n"
             "يرجى إدخال الرمز الذي تلقيته.\n\n"
-            "أرسل /cancel لإلغاء هذه العملية.",
-            parse_mode=ParseMode.HTML
+            "أرسل /cancel لإلغاء هذه العملية."
         )
         return ACCOUNT_CODE
         
     except Exception as e:
         logger.error(f"Error sending code request: {e}")
-        await update.message.reply_text(
+        await send_message(
+            update,
             f"❌ <b>خطأ</b>\n\n"
             f"فشل في إرسال رمز التحقق: {str(e)}\n\n"
             "يرجى المحاولة مرة أخرى لاحقًا أو الاتصال بالدعم.\n\n"
-            "أرسل /cancel لإلغاء هذه العملية.",
-            parse_mode=ParseMode.HTML
+            "أرسل /cancel لإلغاء هذه العملية."
         )
         return ConversationHandler.END
 
@@ -771,12 +804,12 @@ async def add_account_code(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     # التحقق الأساسي
     if not code.isdigit():
-        await update.message.reply_text(
+        await send_message(
+            update,
             "❌ <b>رمز غير صالح</b>\n\n"
             "يجب أن يحتوي رمز التحقق على أرقام فقط.\n\n"
             "يرجى المحاولة مرة أخرى.\n\n"
-            "أرسل /cancel لإلغاء هذه العملية.",
-            parse_mode=ParseMode.HTML
+            "أرسل /cancel لإلغاء هذه العملية."
         )
         return ACCOUNT_CODE
     
@@ -837,13 +870,13 @@ async def add_account_code(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 [InlineKeyboardButton("⬅️ العودة للقائمة الرئيسية", callback_data="main_menu")]
             ]
             
-            await update.message.reply_text(
+            await send_message(
+                update,
                 "✅ <b>تمت إضافة الحساب بنجاح</b>\n\n"
                 f"تمت إضافة حسابك {phone} إلى البوت.\n\n"
                 "يمكنك الآن استخدام هذا الحساب لإنشاء المجموعات والميزات الأخرى.\n\n"
                 "استخدم /accounts لإدارة حساباتك.",
-                reply_markup=InlineKeyboardMarkup(keyboard),
-                parse_mode=ParseMode.HTML
+                reply_markup=InlineKeyboardMarkup(keyboard)
             )
             
             return ConversationHandler.END
@@ -852,23 +885,23 @@ async def add_account_code(update: Update, context: ContextTypes.DEFAULT_TYPE):
             # 2FA مطلوب
             await client.disconnect()
             
-            await update.message.reply_text(
+            await send_message(
+                update,
                 "🔐 <b>مطلوب مصادقة ثنائية العامل</b>\n\n"
                 "هذا الحساب لديه 2FA مفعّل.\n\n"
                 "يرجى إدخال كلمة مرور 2FA الخاصة بك.\n\n"
-                "أرسل /cancel لإلغاء هذه العملية.",
-                parse_mode=ParseMode.HTML
+                "أرسل /cancel لإلغاء هذه العملية."
             )
             return ACCOUNT_PASSWORD
             
     except Exception as e:
         logger.error(f"Error during sign in: {e}")
-        await update.message.reply_text(
+        await send_message(
+            update,
             f"❌ <b>خطأ</b>\n\n"
             f"فشل في تسجيل الدخول: {str(e)}\n\n"
             "يرجى التحقق من رمز التحقق والمحاولة مرة أخرى.\n\n"
-            "أرسل /cancel لإلغاء هذه العملية.",
-            parse_mode=ParseMode.HTML
+            "أرسل /cancel لإلغاء هذه العملية."
         )
         return ACCOUNT_CODE
 
@@ -932,25 +965,25 @@ async def add_account_password(update: Update, context: ContextTypes.DEFAULT_TYP
             [InlineKeyboardButton("⬅️ العودة للقائمة الرئيسية", callback_data="main_menu")]
         ]
         
-        await update.message.reply_text(
+        await send_message(
+            update,
             "✅ <b>تمت إضافة الحساب بنجاح</b>\n\n"
             f"تمت إضافة حسابك {phone} إلى البوت.\n\n"
             "يمكنك الآن استخدام هذا الحساب لإنشاء المجموعات والميزات الأخرى.\n\n"
             "استخدم /accounts لإدارة حساباتك.",
-            reply_markup=InlineKeyboardMarkup(keyboard),
-            parse_mode=ParseMode.HTML
+            reply_markup=InlineKeyboardMarkup(keyboard)
         )
         
         return ConversationHandler.END
         
     except Exception as e:
         logger.error(f"Error during sign in with password: {e}")
-        await update.message.reply_text(
+        await send_message(
+            update,
             f"❌ <b>خطأ</b>\n\n"
             f"فشل في تسجيل الدخول: {str(e)}\n\n"
             "يرجى التحقق من كلمة مرور 2FA والمحاولة مرة أخرى.\n\n"
-            "أرسل /cancel لإلغاء هذه العملية.",
-            parse_mode=ParseMode.HTML
+            "أرسل /cancel لإلغاء هذه العملية."
         )
         return ACCOUNT_PASSWORD
 
@@ -962,12 +995,12 @@ async def cancel_account(update: Update, context: ContextTypes.DEFAULT_TYPE):
         [InlineKeyboardButton("⬅️ العودة للقائمة الرئيسية", callback_data="main_menu")]
     ]
     
-    await update.message.reply_text(
+    await send_message(
+        update,
         "❌ <b>تم إلغاء العملية</b>\n\n"
         "تم إلغاء عملية إضافة الحساب.\n\n"
         "استخدم /accounts لإدارة حساباتك.",
-        reply_markup=InlineKeyboardMarkup(keyboard),
-        parse_mode=ParseMode.HTML
+        reply_markup=InlineKeyboardMarkup(keyboard)
     )
     return ConversationHandler.END
 
@@ -984,12 +1017,12 @@ async def groups_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     ]
     
     if not accounts:
-        await update.message.reply_text(
+        await send_message(
+            update,
             "📱 <b>لا توجد حسابات متاحة</b>\n\n"
             "تحتاج إلى إضافة حساب واحد على الأقل قبل إنشاء المجموعات.\n\n"
             "استخدم /accounts لإضافة حساب.",
-            reply_markup=InlineKeyboardMarkup(keyboard),
-            parse_mode=ParseMode.HTML
+            reply_markup=InlineKeyboardMarkup(keyboard)
         )
         return
     
@@ -1007,22 +1040,22 @@ async def groups_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     accounts_text += "\nاستخدم الزر أدناه لإنشاء المجموعات."
     
-    await update.message.reply_text(
+    await send_message(
+        update,
         accounts_text,
-        reply_markup=reply_markup,
-        parse_mode=ParseMode.HTML
+        reply_markup=reply_markup
     )
 
 # Group creation conversation handlers
 async def create_groups_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """بدء عملية إنشاء المجموعات."""
-    await update.message.reply_text(
+    await send_message(
+        update,
         "👥 <b>إنشاء مجموعات</b>\n\n"
         "دعنا نكوين إعدادات إنشاء المجموعات الخاصة بك.\n\n"
         "أولاً، ماذا تريد أن تسمي مجموعاتك؟\n\n"
         "يمكنك استخدام نمط مثل 'مجموعتي' وسينشئ البوت 'مجموعتي 1'، 'مجموعتي 2'، إلخ.\n\n"
-        "أرسل /cancel لإلغاء هذه العملية.",
-        parse_mode=ParseMode.HTML
+        "أرسل /cancel لإلغاء هذه العملية."
     )
     return GROUP_NAME
 
@@ -1031,24 +1064,24 @@ async def create_groups_name(update: Update, context: ContextTypes.DEFAULT_TYPE)
     name = update.message.text.strip()
     
     if not name:
-        await update.message.reply_text(
+        await send_message(
+            update,
             "❌ <b>اسم غير صالح</b>\n\n"
             "يرجى إدخال اسم مجموعة صالح.\n\n"
-            "أرسل /cancel لإلغاء هذه العملية.",
-            parse_mode=ParseMode.HTML
+            "أرسل /cancel لإلغاء هذه العملية."
         )
         return GROUP_NAME
     
     # تخزين الاسم في السياق
     context.user_data["group_name"] = name
     
-    await update.message.reply_text(
+    await send_message(
+        update,
         f"✅ <b>تم تعيين اسم المجموعة</b>\n\n"
         f"سيتم تسمية المجموعات: '{name} 1'، '{name} 2'، إلخ.\n\n"
         "كم مجموعة تريد إنشاءها؟\n\n"
         "يرجى إدخال رقم بين 1 و 50.\n\n"
-        "أرسل /cancel لإلغاء هذه العملية.",
-        parse_mode=ParseMode.HTML
+        "أرسل /cancel لإلغاء هذه العملية."
     )
     return GROUP_COUNT
 
@@ -1061,24 +1094,24 @@ async def create_groups_count(update: Update, context: ContextTypes.DEFAULT_TYPE
         if count < 1 or count > 50:
             raise ValueError("Count out of range")
     except ValueError:
-        await update.message.reply_text(
+        await send_message(
+            update,
             "❌ <b>عدد غير صالح</b>\n\n"
             "يرجى إدخال رقم بين 1 و 50.\n\n"
-            "أرسل /cancel لإلغاء هذه العملية.",
-            parse_mode=ParseMode.HTML
+            "أرسل /cancel لإلغاء هذه العملية."
         )
         return GROUP_COUNT
     
     # تخزين العدد في السياق
     context.user_data["group_count"] = count
     
-    await update.message.reply_text(
+    await send_message(
+        update,
         f"✅ <b>تم تعيين عدد المجموعات</b>\n\n"
         f"ستقوم بإنشاء {count} مجموعة.\n\n"
         "كم من التأخير تريده بين إنشاء كل مجموعة؟\n\n"
         "يرجى إدخال التأخير بالثواني (بين 5 و 60).\n\n"
-        "أرسل /cancel لإلغاء هذه العملية.",
-        parse_mode=ParseMode.HTML
+        "أرسل /cancel لإلغاء هذه العملية."
     )
     return GROUP_DELAY
 
@@ -1091,11 +1124,11 @@ async def create_groups_delay(update: Update, context: ContextTypes.DEFAULT_TYPE
         if delay < 5 or delay > 60:
             raise ValueError("Delay out of range")
     except ValueError:
-        await update.message.reply_text(
+        await send_message(
+            update,
             "❌ <b>تأخير غير صالح</b>\n\n"
             "يرجى إدخال رقم بين 5 و 60.\n\n"
-            "أرسل /cancel لإلغاء هذه العملية.",
-            parse_mode=ParseMode.HTML
+            "أرسل /cancel لإلغاء هذه العملية."
         )
         return GROUP_DELAY
     
@@ -1113,12 +1146,12 @@ async def create_groups_delay(update: Update, context: ContextTypes.DEFAULT_TYPE
             active_accounts.append(account)
     
     if not active_accounts:
-        await update.message.reply_text(
+        await send_message(
+            update,
             "❌ <b>لا توجد جلسات نشطة</b>\n\n"
             "ليس لديك أي حسابات بها جلسات نشطة.\n\n"
             "يرجى إضافة حساب به جلسة نشطة أولاً.\n\n"
-            "أرسل /cancel لإلغاء هذه العملية.",
-            parse_mode=ParseMode.HTML
+            "أرسل /cancel لإلغاء هذه العملية."
         )
         return ConversationHandler.END
     
@@ -1148,14 +1181,14 @@ async def create_groups_delay(update: Update, context: ContextTypes.DEFAULT_TYPE
     
     reply_markup = InlineKeyboardMarkup(keyboard)
     
-    await update.message.reply_text(
+    await send_message(
+        update,
         "✅ <b>تم تكوين الإعدادات</b>\n\n"
         f"اسم المجموعة: {context.user_data['group_name']}\n"
         f"عدد المجموعات: {context.user_data['group_count']}\n"
         f"التأخير بين المجموعات: {context.user_data['group_delay']} ثانية\n\n"
         "يرجى تحديد الحساب (الحسابات) التي تريد استخدامها لإنشاء المجموعات:",
-        reply_markup=reply_markup,
-        parse_mode=ParseMode.HTML
+        reply_markup=reply_markup
     )
     return ConversationHandler.END
 
@@ -1167,12 +1200,12 @@ async def cancel_groups(update: Update, context: ContextTypes.DEFAULT_TYPE):
         [InlineKeyboardButton("⬅️ العودة للقائمة الرئيسية", callback_data="main_menu")]
     ]
     
-    await update.message.reply_text(
+    await send_message(
+        update,
         "❌ <b>تم إلغاء العملية</b>\n\n"
         "تم إلغاء عملية إنشاء المجموعات.\n\n"
         "استخدم /groups للمحاولة مرة أخرى.",
-        reply_markup=InlineKeyboardMarkup(keyboard),
-        parse_mode=ParseMode.HTML
+        reply_markup=InlineKeyboardMarkup(keyboard)
     )
     return ConversationHandler.END
 
@@ -1899,12 +1932,16 @@ async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> N
     
     # إعلام المالك بالخطأ
     try:
+        # تنسيق الخطأ لتجنب مشاكل HTML
+        error_message = str(context.error).replace("<", "&lt;").replace(">", "&gt;")
+        update_str = str(update).replace("<", "&lt;").replace(">", "&gt;")
+        
         await context.bot.send_message(
             chat_id=OWNER_ID,
             text=f"⚠️ <b>خطأ</b>\n\n"
                  f"حدث خطأ أثناء معالجة تحديث:\n\n"
-                 f"الخطأ: {context.error}\n\n"
-                 f"التحديث: {update}",
+                 f"الخطأ: {error_message}\n\n"
+                 f"التحديث: {update_str}",
             parse_mode=ParseMode.HTML
         )
     except Exception as e:
@@ -1948,7 +1985,7 @@ def main():
             ACCOUNT_PASSWORD: [MessageHandler(filters.TEXT & ~filters.COMMAND, add_account_password)],
         },
         fallbacks=[CommandHandler("cancel", cancel_account)],
-        per_message=False,
+        per_message=True,  # تم تغيير هذه القيمة لإصلاح التحذير
     )
     application.add_handler(account_conv_handler)
     
@@ -1964,7 +2001,7 @@ def main():
             GROUP_DELAY: [MessageHandler(filters.TEXT & ~filters.COMMAND, create_groups_delay)],
         },
         fallbacks=[CommandHandler("cancel", cancel_groups)],
-        per_message=False,
+        per_message=True,  # تم تغيير هذه القيمة لإصلاح التحذير
     )
     application.add_handler(group_conv_handler)
     
