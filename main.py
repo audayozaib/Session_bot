@@ -12,6 +12,7 @@ import uuid
 from typing import Dict, List, Optional, Tuple, Union
 from functools import wraps
 from io import BytesIO
+from bson.objectid import ObjectId
 
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, User
 from telegram.ext import (
@@ -1152,6 +1153,7 @@ async def cancel_groups(update: Update, context: ContextTypes.DEFAULT_TYPE):
     return ConversationHandler.END
 
 # Callback query handlers
+# Callback query handlers
 async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """معالجة استدعاءات الأزرار."""
     query = update.callback_query
@@ -1205,10 +1207,21 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     # زر إدارة الحساب
     elif data.startswith("manage_account_"):
-        # استخراج معرف الحساب
-        account_id = data.split("_", 2)[2]
+        # استخراج معرف الحساب كنص
+        account_id_str = data.split("_", 2)[2]
         
-        # الحصول على تفاصيل الحساب
+        # تحويل النص إلى ObjectId مع معالجة الأخطاء
+        try:
+            account_id = ObjectId(account_id_str)
+        except Exception:
+            await query.message.reply_text(
+                "❌ <b>خطأ</b>\n\n"
+                "معرف الحساب غير صالح.",
+                parse_mode=ParseMode.HTML
+            )
+            return
+        
+        # الحصول على تفاصيل الحساب باستخدام ObjectId
         account = accounts_collection.find_one({"_id": account_id})
         if not account:
             await query.message.reply_text(
@@ -1231,18 +1244,18 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
         if has_session:
             keyboard.append([
-                InlineKeyboardButton("🔄 تحديث الجلسة", callback_data=f"refresh_session_{account_id}")
+                InlineKeyboardButton("🔄 تحديث الجلسة", callback_data=f"refresh_session_{account_id_str}")
             ])
             keyboard.append([
-                InlineKeyboardButton("🗑️ حذف الجلسة", callback_data=f"delete_session_{account_id}")
+                InlineKeyboardButton("🗑️ حذف الجلسة", callback_data=f"delete_session_{account_id_str}")
             ])
         else:
             keyboard.append([
-                InlineKeyboardButton("➕ إنشاء جلسة", callback_data=f"create_session_{account_id}")
+                InlineKeyboardButton("➕ إنشاء جلسة", callback_data=f"create_session_{account_id_str}")
             ])
         
         keyboard.append([
-            InlineKeyboardButton("🗑️ حذف الحساب", callback_data=f"delete_account_{account_id}")
+            InlineKeyboardButton("🗑️ حذف الحساب", callback_data=f"delete_account_{account_id_str}")
         ])
         keyboard.append([
             InlineKeyboardButton("⬅️ العودة إلى الحسابات", callback_data="accounts")
@@ -1253,7 +1266,7 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         account_text = (
             f"📱 <b>تفاصيل الحساب</b>\n\n"
             f"📞 <b>الهاتف:</b> {phone}\n"
-            f"🆔 <b>المعرف:</b> {account_id}\n"
+            f"🆔 <b>المعرف:</b> {account_id_str}\n"
             f"📅 <b>تاريخ الإضافة:</b> {created_at_str}\n"
             f"🔐 <b>حالة الجلسة:</b> {session_status}\n\n"
             f"استخدم الأزرار أدناه لإدارة هذا الحساب."
@@ -1267,8 +1280,19 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     # زر حذف الحساب
     elif data.startswith("delete_account_"):
-        # استخراج معرف الحساب
-        account_id = data.split("_", 2)[2]
+        # استخراج معرف الحساب كنص
+        account_id_str = data.split("_", 2)[2]
+        
+        # تحويل النص إلى ObjectId مع معالجة الأخطاء
+        try:
+            account_id = ObjectId(account_id_str)
+        except Exception:
+            await query.message.reply_text(
+                "❌ <b>خطأ</b>\n\n"
+                "معرف الحساب غير صالح.",
+                parse_mode=ParseMode.HTML
+            )
+            return
         
         # الحصول على تفاصيل الحساب
         account = accounts_collection.find_one({"_id": account_id})
@@ -1285,7 +1309,7 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         # إنشاء لوحة مفاتيح للتأكيد
         keyboard = [
             [
-                InlineKeyboardButton("✅ نعم، احذف", callback_data=f"confirm_delete_account_{account_id}"),
+                InlineKeyboardButton("✅ نعم، احذف", callback_data=f"confirm_delete_account_{account_id_str}"),
                 InlineKeyboardButton("❌ لا، إلغاء", callback_data="accounts")
             ]
         ]
@@ -1301,8 +1325,19 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     # زر تأكيد حذف الحساب
     elif data.startswith("confirm_delete_account_"):
-        # استخراج معرف الحساب
-        account_id = data.split("_", 3)[3]
+        # استخراج معرف الحساب كنص
+        account_id_str = data.split("_", 3)[3]
+        
+        # تحويل النص إلى ObjectId مع معالجة الأخطاء
+        try:
+            account_id = ObjectId(account_id_str)
+        except Exception:
+            await query.message.reply_text(
+                "❌ <b>خطأ</b>\n\n"
+                "معرف الحساب غير صالح.",
+                parse_mode=ParseMode.HTML
+            )
+            return
         
         # الحصول على تفاصيل الحساب
         account = accounts_collection.find_one({"_id": account_id})
@@ -1315,13 +1350,13 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return
         
         phone = account.get("phone_number", "N/A")
-        user_id = account.get("user_id", update.effective_user.id)
+        user_id_from_db = account.get("user_id", update.effective_user.id)
         
         # حذف الحساب
         accounts_collection.delete_one({"_id": account_id})
         
         # تسجيل الحدث
-        log_event("account_deleted", f"Account {phone} deleted by user {user_id}", user_id)
+        log_event("account_deleted", f"Account {phone} deleted by user {user_id_from_db}", user_id_from_db)
         
         # إعلام المالك
         await notify_owner(
@@ -1329,7 +1364,7 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             f"📱 <b>تم حذف الحساب</b>\n\n"
             f"المستخدم: {update.effective_user.first_name} (@{update.effective_user.username})\n"
             f"الحساب: {phone}\n"
-            f"معرف الحساب: {account_id}"
+            f"معرف الحساب: {account_id_str}"
         )
         
         # إنشاء لوحة مفاتيح مع الخيارات
@@ -1445,8 +1480,19 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     # استخدام حساب محدد لإنشاء المجموعات
     elif data.startswith("use_account_"):
-        # استخراج معرف الحساب
-        account_id = data.split("_", 2)[2]
+        # استخراج معرف الحساب كنص
+        account_id_str = data.split("_", 2)[2]
+        
+        # تحويل النص إلى ObjectId مع معالجة الأخطاء
+        try:
+            account_id = ObjectId(account_id_str)
+        except Exception:
+            await query.message.reply_text(
+                "❌ <b>خطأ</b>\n\n"
+                "معرف الحساب غير صالح.",
+                parse_mode=ParseMode.HTML
+            )
+            return
         
         # الحصول على تفاصيل الحساب
         account = accounts_collection.find_one({"_id": account_id})
@@ -1477,8 +1523,19 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     # تحديث الجلسة
     elif data.startswith("refresh_session_"):
-        # استخراج معرف الحساب
-        account_id = data.split("_", 2)[2]
+        # استخراج معرف الحساب كنص
+        account_id_str = data.split("_", 2)[2]
+        
+        # تحويل النص إلى ObjectId مع معالجة الأخطاء
+        try:
+            account_id = ObjectId(account_id_str)
+        except Exception:
+            await query.message.reply_text(
+                "❌ <b>خطأ</b>\n\n"
+                "معرف الحساب غير صالح.",
+                parse_mode=ParseMode.HTML
+            )
+            return
         
         # الحصول على تفاصيل الحساب
         account = accounts_collection.find_one({"_id": account_id})
@@ -1557,8 +1614,19 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     # حذف الجلسة
     elif data.startswith("delete_session_"):
-        # استخراج معرف الحساب
-        account_id = data.split("_", 2)[2]
+        # استخراج معرف الحساب كنص
+        account_id_str = data.split("_", 2)[2]
+        
+        # تحويل النص إلى ObjectId مع معالجة الأخطاء
+        try:
+            account_id = ObjectId(account_id_str)
+        except Exception:
+            await query.message.reply_text(
+                "❌ <b>خطأ</b>\n\n"
+                "معرف الحساب غير صالح.",
+                parse_mode=ParseMode.HTML
+            )
+            return
         
         # الحصول على تفاصيل الحساب
         account = accounts_collection.find_one({"_id": account_id})
@@ -1575,8 +1643,8 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         # إنشاء لوحة مفاتيح للتأكيد
         keyboard = [
             [
-                InlineKeyboardButton("✅ نعم، احذف", callback_data=f"confirm_delete_session_{account_id}"),
-                InlineKeyboardButton("❌ لا، إلغاء", callback_data=f"manage_account_{account_id}")
+                InlineKeyboardButton("✅ نعم، احذف", callback_data=f"confirm_delete_session_{account_id_str}"),
+                InlineKeyboardButton("❌ لا، إلغاء", callback_data=f"manage_account_{account_id_str}")
             ]
         ]
         reply_markup = InlineKeyboardMarkup(keyboard)
@@ -1591,8 +1659,19 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     # تأكيد حذف الجلسة
     elif data.startswith("confirm_delete_session_"):
-        # استخراج معرف الحساب
-        account_id = data.split("_", 3)[3]
+        # استخراج معرف الحساب كنص
+        account_id_str = data.split("_", 3)[3]
+        
+        # تحويل النص إلى ObjectId مع معالجة الأخطاء
+        try:
+            account_id = ObjectId(account_id_str)
+        except Exception:
+            await query.message.reply_text(
+                "❌ <b>خطأ</b>\n\n"
+                "معرف الحساب غير صالح.",
+                parse_mode=ParseMode.HTML
+            )
+            return
         
         # الحصول على تفاصيل الحساب
         account = accounts_collection.find_one({"_id": account_id})
@@ -1624,8 +1703,19 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     # إنشاء جلسة
     elif data.startswith("create_session_"):
-        # استخراج معرف الحساب
-        account_id = data.split("_", 2)[2]
+        # استخراج معرف الحساب كنص
+        account_id_str = data.split("_", 2)[2]
+        
+        # تحويل النص إلى ObjectId مع معالجة الأخطاء
+        try:
+            account_id = ObjectId(account_id_str)
+        except Exception:
+            await query.message.reply_text(
+                "❌ <b>خطأ</b>\n\n"
+                "معرف الحساب غير صالح.",
+                parse_mode=ParseMode.HTML
+            )
+            return
         
         # الحصول على تفاصيل الحساب
         account = accounts_collection.find_one({"_id": account_id})
@@ -1640,7 +1730,7 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         phone = account.get("phone_number", "N/A")
         
         # تخزين معرف الحساب في السياق لإنشاء الجلسة
-        context.user_data["session_account_id"] = account_id
+        context.user_data["session_account_id"] = account_id_str
         context.user_data["session_phone"] = phone
         
         # بدء عملية إنشاء الجلسة
@@ -1747,108 +1837,94 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 # Helper function for creating groups with accounts
 async def create_groups_with_accounts(update: Update, context: ContextTypes.DEFAULT_TYPE, accounts: List[Dict]):
-    """إنشاء مجموعات باستخدام الحسابات المحددة."""
+    """إنشاء مجموعات (Supergroups) وإرسال 10 رسائل داخل كل مجموعة."""
     query = update.callback_query
     user_id = update.effective_user.id
-    
+
     group_name = context.user_data.get("group_name", "Group")
     group_count = context.user_data.get("group_count", 1)
     group_delay = context.user_data.get("group_delay", 10)
-    
-    # إرسال رسالة معالجة
+
     processing_message = await query.message.reply_text(
         "⏳ <b>جاري إنشاء المجموعات</b>\n\n"
-        f"يتم الآن إنشاء {group_count} مجموعة باستخدام {len(accounts)} حساب.\n\n"
-        f"اسم المجموعة: {group_name}\n"
-        f"التأخير بين المجموعات: {group_delay} ثانية\n\n"
-        "يرجى الانتظار...",
+        f"عدد المجموعات: {group_count}\n"
+        f"التأخير: {group_delay} ثانية",
         parse_mode=ParseMode.HTML
     )
-    
+
     created_groups = 0
     failed_groups = 0
-    
-    try:
-        # إنشاء المجموعات واحدة تلو الأخرى
-        for i in range(group_count):
-            # تحديد الحساب بطريقة round-robin
-            account = accounts[i % len(accounts)]
-            phone = account.get("phone_number", "N/A")
-            session_data = account.get("session_data", "")
-            
-            try:
-                # إنشاء عميل Telethon مع الجلسة
-                client = TelegramClient(
-                    StringSession(session_data),
-                    API_ID,
-                    API_HASH
-                )
-                
-                await client.connect()
-                
-                # التحقق مما إذا كانت الجلسة صالحة
-                if await client.is_user_authorized():
-                    # إنشاء المجموعة
-                    group_title = f"{group_name} {i+1}"
-                    result = await client(functions.channels.CreateChannelRequest(
-                        title=group_title,
-                        about=f"Created by Telegram Account Manager Bot",
-                        megagroup=False
-                    ))
-                    
-                    created_groups += 1
-                    
-                    # تسجيل الحدث
-                    log_event("group_created", f"Group {group_title} created with account {phone}", user_id)
-                    
-                    # تحديث رسالة التقدم
-                    if i < group_count - 1:  # لا تحدث بعد المجموعة الأخيرة
-                        await processing_message.edit_text(
-                            "⏳ <b>جاري إنشاء المجموعات</b>\n\n"
-                            f"تم إنشاء {created_groups} من {group_count} مجموعة.\n\n"
-                            f"اسم المجموعة: {group_name}\n"
-                            f"التأخير بين المجموعات: {group_delay} ثانية\n\n"
-                            "يرجى الانتظار...",
-                            parse_mode=ParseMode.HTML
-                        )
-                    
-                    # التأخير بين إنشاء المجموعات
-                    if i < group_count - 1:  # لا تؤخر بعد المجموعة الأخيرة
-                        await asyncio.sleep(group_delay)
-                else:
-                    failed_groups += 1
-                    logger.error(f"Session not authorized for account {phone}")
-                
-                await client.disconnect()
-                
-            except Exception as e:
+
+    for i in range(group_count):
+        account = accounts[i % len(accounts)]
+        phone = account.get("phone_number")
+        session_data = account.get("session_data")
+
+        try:
+            client = TelegramClient(
+                StringSession(session_data),
+                API_ID,
+                API_HASH
+            )
+            await client.connect()
+
+            if not await client.is_user_authorized():
                 failed_groups += 1
-                logger.error(f"Error creating group with account {phone}: {e}")
-        
-        # رسالة الحالة النهائية
-        keyboard = [
-            [InlineKeyboardButton("👥 المجموعات", callback_data="groups")],
-            [InlineKeyboardButton("⬅️ العودة للقائمة الرئيسية", callback_data="main_menu")]
-        ]
-        
-        await processing_message.edit_text(
-            f"✅ <b>اكتمل إنشاء المجموعات</b>\n\n"
-            f"تم إنشاء {created_groups} مجموعة بنجاح.\n"
-            f"فشل إنشاء {failed_groups} مجموعة.\n\n"
-            f"استخدم الأزرار أدناه للمتابعة.",
-            reply_markup=InlineKeyboardMarkup(keyboard),
-            parse_mode=ParseMode.HTML
-        )
-        
-    except Exception as e:
-        logger.error(f"Error in group creation process: {e}")
-        await processing_message.edit_text(
-            f"❌ <b>خطأ في إنشاء المجموعات</b>\n\n"
-            f"حدث خطأ أثناء عملية إنشاء المجموعات:\n\n"
-            f"{str(e)}\n\n"
-            f"يرجى المحاولة مرة أخرى لاحقًا.",
-            parse_mode=ParseMode.HTML
-        )
+                await client.disconnect()
+                continue
+
+            group_title = f"{group_name} {i + 1}"
+
+            result = await client(functions.channels.CreateChannelRequest(
+                title=group_title,
+                about="تم الإنشاء بواسطة البوت",
+                megagroup=True   # ⭐ هذا الفرق المهم (مجموعة وليس قناة)
+            ))
+
+            channel = result.chats[0]
+
+            # إرسال 10 رسائل داخل المجموعة
+            for msg_index in range(1, 11):
+                await client.send_message(
+                    channel.id,
+                    f"📩 رسالة رقم {msg_index}"
+                )
+                await asyncio.sleep(0.5)
+
+            created_groups += 1
+
+            log_event(
+                "group_created",
+                f"Group {group_title} created and 10 messages sent using {phone}",
+                user_id
+            )
+
+            await client.disconnect()
+
+            if i < group_count - 1:
+                await processing_message.edit_text(
+                    "⏳ <b>جاري إنشاء المجموعات</b>\n\n"
+                    f"تم إنشاء {created_groups} من {group_count}",
+                    parse_mode=ParseMode.HTML
+                )
+                await asyncio.sleep(group_delay)
+
+        except Exception as e:
+            failed_groups += 1
+            logger.error(f"Group creation failed for {phone}: {e}")
+
+    keyboard = [
+        [InlineKeyboardButton("👥 المجموعات", callback_data="groups")],
+        [InlineKeyboardButton("⬅️ القائمة الرئيسية", callback_data="main_menu")]
+    ]
+
+    await processing_message.edit_text(
+        "✅ <b>اكتملت العملية</b>\n\n"
+        f"تم إنشاء {created_groups} مجموعة\n"
+        f"فشل {failed_groups} مجموعة",
+        reply_markup=InlineKeyboardMarkup(keyboard),
+        parse_mode=ParseMode.HTML
+    )
 
 # Error handler
 async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
