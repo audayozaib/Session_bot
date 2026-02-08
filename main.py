@@ -770,93 +770,77 @@ async def add_account_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def add_account_phone(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """معالجة إدخال رقم الهاتف وإرسال رمز التحقق."""
     try:
-        # 1. تنظيف الرقم: إزالة أي مسافات أو رموز غير رقمية باستثناء الـ +
-        raw_phone = update.message.text.strip()
-        phone = "+" + "".join(filter(str.isdigit, raw_phone)) if not raw_phone.startswith('+') else "+" + "".join(filter(str.isdigit, raw_phone[1:]))
-        
-        logger.info(f"Cleaned phone number: {phone}")
-        
-        # 2. التحقق من الطول (الحد الأدنى للأرقام الدولية عادة 10-15 رقم)
-        if len(phone) < 11:
-            await update.message.reply_text(
-                "❌ <b>رقم هاتف غير صالح</b>\n\n"
-                "يرجى إدخال رقم الهاتف كاملاً مع مفتاح الدولة (مثال: +966501234567).",
-                parse_mode=ParseMode.HTML
-            )
-            return ACCOUNT_PHONE
+        phone = update.message.text.strip().replace(' ', '')
+        if not phone.startswith('+'):
+            phone = '+' + phone
         
         context.user_data["phone"] = phone
-        wait_message = await update.message.reply_text("⏳ جاري إرسال رمز التحقق...")
-
-        # 3. إرسال الطلب عبر Telethon
+        wait_msg = await update.message.reply_text("⏳ <b>جاري طلب الرمز من تيليجرام...</b>", parse_mode=ParseMode.HTML)
+        
+        # إنشاء العميل وحفظه في context لضمان عدم انتهاء الجلسة
         client = TelegramClient(StringSession(), API_ID, API_HASH)
+        await client.connect()
+        
         try:
-            await client.connect()
             result = await client.send_code_request(phone)
+            # حفظ الـ Hash والعميل مؤقتاً
             context.user_data["phone_code_hash"] = result.phone_code_hash
             
-            await wait_message.edit_text(
-                f"✅ <b>تم إرسال الرمز</b>\n\n"
-                f"أدخل الكود المرسل إلى الرقم: <code>{phone}</code>\n"
-                "أرسل /cancel للإلغاء.",
+            await wait_msg.edit_text(
+                f"✅ <b>تم إرسال الرمز</b>\n\nالرقم: <code>{phone}</code>\n"
+                "يرجى إدخال الكود بسرعة (لديك دقيقتان قبل انتهاء الصلاحية).",
                 parse_mode=ParseMode.HTML
             )
             return ACCOUNT_CODE
-        except errors.FloodWaitError as e:
-            await wait_message.edit_text(f"🛑 قيود تيليجرام: يرجى الانتظار {e.seconds} ثانية.")
-            return ConversationHandler.END
         except Exception as e:
-            logger.error(f"Error sending code: {e}")
-            await wait_message.edit_text(f"❌ خطأ: {str(e)}")
+            await wait_msg.edit_text(f"❌ خطأ في طلب الرمز: {str(e)}")
             return ConversationHandler.END
         finally:
-            await client.disconnect() # هام جداً لعدم تعليق الجلسة
+            await client.disconnect() # نفصل هنا ونعيد الاتصال في الدالة التالية بنفس الـ Hash
+            
     except Exception as e:
-        logger.error(f"Unexpected error: {e}")
+        logger.error(f"Error in add_account_phone: {e}")
         return ConversationHandler.END
 
-# استبدل الدوال التالية في الكود الخاص بك
-
 async def add_account_code(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """معالجة إدخال رمز التحقق وتوقيع الدخول."""
+    """معالجة الكود ومعالجة خطأ انتهاء الصلاحية."""
     code = update.message.text.strip().replace(' ', '')
     phone = context.user_data.get("phone")
     phone_code_hash = context.user_data.get("phone_code_hash")
+    
+    if not phone_code_hash:
+        await update.message.reply_text("❌ انتهت الجلسة، يرجى البدء من جديد باستخدام /start")
+        return ConversationHandler.END
 
-    if not code.isdigit():
-        await update.message.reply_text("❌ الرمز يجب أن يتكون من أرقام فقط.")
-        return ACCOUNT_CODE
-
+    wait_msg = await update.message.reply_text("🔄 جاري التحقق من الكود...")
     client = TelegramClient(StringSession(), API_ID, API_HASH)
+    
     try:
         await client.connect()
         # محاولة تسجيل الدخول
         await client.sign_in(phone=phone, code=code, phone_code_hash=phone_code_hash)
         
-        # إذا نجح الدخول (بدون 2FA)
+        # حفظ الحساب بنجاح
         session_str = client.session.save()
-        user_id = update.effective_user.id
-        
-        # حفظ في قاعدة البيانات
         accounts_collection.insert_one({
-            "user_id": user_id,
+            "user_id": update.effective_user.id,
             "phone_number": phone,
             "session_data": encrypt_data(session_str),
             "created_at": datetime.datetime.now()
         })
         
-        await update.message.reply_text(f"✅ تم ربط الحساب {phone} بنجاح!")
+        await wait_msg.edit_text(f"✅ تم ربط الحساب <code>{phone}</code> بنجاح!", parse_mode=ParseMode.HTML)
         return ConversationHandler.END
 
     except errors.SessionPasswordNeededError:
-        context.user_data["code"] = code # حفظ الكود لاستخدامه في دالة الباسورد
-        await update.message.reply_text("🔐 هذا الحساب محمي بكلمة سر (2FA)، يرجى إرسالها الآن:")
+        context.user_data["code"] = code # حفظ الكود لاستخدامه في المرحلة التالية
+        await wait_msg.edit_text("🔐 الحساب محمي بالتحقق الثنائي (2FA).\nأرسل كلمة السر الآن:")
         return ACCOUNT_PASSWORD
-    except errors.PhoneCodeInvalidError:
-        await update.message.reply_text("❌ الرمز غير صحيح، حاول مرة أخرى أو أرسل /cancel.")
-        return ACCOUNT_CODE
+    except errors.PhoneCodeExpiredError:
+        await wait_msg.edit_text("❌ انتهت صلاحية الكود. يرجى إعادة المحاولة من جديد.")
+        return ConversationHandler.END
     except Exception as e:
-        await update.message.reply_text(f"❌ حدث خطأ أثناء تسجيل الدخول: {str(e)}")
+        await wait_msg.edit_text(f"❌ حدث خطأ: {str(e)}")
         return ConversationHandler.END
     finally:
         await client.disconnect()
