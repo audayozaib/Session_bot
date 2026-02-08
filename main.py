@@ -981,7 +981,8 @@ async def add_account_code(update: Update, context: ContextTypes.DEFAULT_TYPE):
             # محاولة تسجيل الدخول - إذا نجح، لا يوجد 2FA
             await client.sign_in(
                 phone=context.user_data["phone"],
-                code=code
+                code=code,
+                phone_code_hash=context.user_data["phone_code_hash"]
             )
             
             # إذا وصلنا هنا، التسجيل ناجح ولا يوجد 2FA
@@ -1031,8 +1032,9 @@ async def add_account_code(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return ConversationHandler.END
             
         except errors.SessionPasswordNeededError:
-            # 2FA مطلوب - نحتفظ بالعميل ونطلب كلمة المرور
-            # لا نغلق الاتصال بعد
+            # 2FA مطلوب - نغلق العميل الحالي ونطلب كلمة المرور
+            await client.disconnect()
+            
             await send_message(
                 update,
                 "🔐 <b>مطلوب مصادقة ثنائية العامل</b>\n\n"
@@ -1040,7 +1042,6 @@ async def add_account_code(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 "يرجى إدخال كلمة مرور 2FA الخاصة بك.\n\n"
                 "أرسل /cancel لإلغاء هذه العملية."
             )
-            # لا نغلق العميل هنا، سنستخدمه في خطوة كلمة المرور
             return ACCOUNT_PASSWORD
             
     except errors.PhoneCodeInvalidError:
@@ -1079,8 +1080,7 @@ async def add_account_password(update: Update, context: ContextTypes.DEFAULT_TYP
     password = update.message.text.strip()
     
     try:
-        # نستخدم العميل الذي لم نغلقه في الخطوة السابقة
-        # لكن إذا انقطع الاتصال، نعيد إنشاءه
+        # إنشاء عميل Telethon جديد
         client = TelegramClient(
             StringSession(),
             API_ID,
@@ -1089,9 +1089,13 @@ async def add_account_password(update: Update, context: ContextTypes.DEFAULT_TYP
         
         await client.connect()
         
-        # الآن نحاول تسجيل الدخول بكلمة المرور
-        # نستخدم دالة sign_in مع كلمة المرور فقط (بعد أن فشل بالرمز)
-        await client.sign_in(password=password)
+        # تسجيل الدخول مع جميع المعلمات المطلوبة
+        await client.sign_in(
+            phone=context.user_data["phone"],
+            code=context.user_data["code"],
+            password=password,
+            phone_code_hash=context.user_data["phone_code_hash"]
+        )
         
         # إذا وصلنا هنا، التسجيل ناجح
         session_string = client.session.save()
