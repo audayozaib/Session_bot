@@ -744,52 +744,69 @@ async def add_account_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def add_account_phone(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """معالجة إدخال رقم الهاتف."""
-    phone = update.message.text.strip()
-    
-    # التحقق الأساسي وتنظيف الرقم
-    phone = phone.replace(' ', '').replace('-', '').replace('(', '').replace(')', '')
-    
-    if not phone.startswith('+'):
-        phone = '+' + phone
-    
-    if not phone[1:].isdigit() or len(phone[1:]) < 10:
-        await send_message(
-            update,
-            "❌ <b>رقم هاتف غير صالح</b>\n\n"
-            "يرجى إدخال رقم هاتف صالح مع رمز البلد.\n\n"
-            "مثال: +966501234567\n\n"
-            "أرسل /cancel لإلغاء هذه العملية."
-        )
-        return ACCOUNT_PHONE
-    
-    # تخزين رقم الهاتف في السياق
-    context.user_data["phone"] = phone
-    
-    # التحقق من قيم API
-    if API_ID == 0 or not API_HASH:
-        logger.error("API_ID or API_HASH is not configured")
-        await send_message(
-            update,
-            "❌ <b>خطأ في الإعدادات</b>\n\n"
-            "لم يتم تكوين معرفات API بشكل صحيح.\n\n"
-            "يرجى التواصل مع المالك.",
-        )
-        return ConversationHandler.END
-    
-    # إرسال رسالة انتظار
-    wait_message = await send_message(
-        update,
-        "⏳ <b>جاري إرسال رمز التحقق</b>\n\n"
-        "يرجى الانتظار...\n\n"
-        "قد يستغرق هذا بضع ثوانٍ."
-    )
-    
-    # إنشاء عميل Telethon مؤقت لطلب الرمز
     try:
-        logger.info(f"Attempting to send code request to {phone}")
+        # طباعة معلومات للتصحيح
+        logger.info(f"Received phone number input: {update.message.text}")
+        print(f"📱 Received phone: {update.message.text}")
         
-        # استخدام جلسة مؤقتة
-        session_name = f"temp_session_{update.effective_user.id}"
+        phone = update.message.text.strip()
+        
+        # التحقق الأساسي وتنظيف الرقم
+        original_phone = phone
+        phone = phone.replace(' ', '').replace('-', '').replace('(', '').replace(')', '').replace('+', '')
+        
+        # إضافة + إذا لم يكن موجوداً
+        if not original_phone.startswith('+'):
+            phone = '+' + phone
+        
+        logger.info(f"Cleaned phone number: {phone}")
+        print(f"🔧 Cleaned phone: {phone}")
+        
+        # التحقق من صحة الرقم
+        if not phone.startswith('+') or not phone[1:].isdigit() or len(phone[1:]) < 10:
+            logger.warning(f"Invalid phone format: {phone}")
+            await send_message(
+                update,
+                "❌ <b>رقم هاتف غير صالح</b>\n\n"
+                "يرجى إدخال رقم هاتف صالح مع رمز البلد.\n\n"
+                "أمثلة صحيحة:\n"
+                "• +966501234567\n"
+                "• 966501234567\n"
+                "• 0501234567\n\n"
+                "أرسل /cancel لإلغاء هذه العملية."
+            )
+            return ACCOUNT_PHONE
+        
+        # تخزين رقم الهاتف في السياق
+        context.user_data["phone"] = phone
+        logger.info(f"Phone stored in context: {phone}")
+        
+        # التحقق من قيم API
+        if API_ID == 0 or not API_HASH:
+            logger.error("API_ID or API_HASH is not configured")
+            await send_message(
+                update,
+                "❌ <b>خطأ في الإعدادات</b>\n\n"
+                "لم يتم تكوين معرفات API بشكل صحيح.\n\n"
+                "يرجى التواصل مع المالك.",
+            )
+            return ConversationHandler.END
+        
+        # إرسال رسالة انتظار
+        wait_message = await send_message(
+            update,
+            "⏳ <b>جاري إرسال رمز التحقق</b>\n\n"
+            f"الرقم: {phone}\n"
+            "يرجى الانتظار...\n\n"
+            "قد يستغرق هذا بضع ثوانٍ."
+        )
+        
+        logger.info("Attempting to send code request...")
+        print("📡 Sending code request...")
+        
+        # استخدام جلسة مؤقتة باسم فريد
+        import uuid
+        session_name = f"temp_session_{update.effective_user.id}_{uuid.uuid4().hex[:8]}"
         
         # إنشاء العميل مع إعدادات محسنة
         client = TelegramClient(
@@ -797,119 +814,123 @@ async def add_account_phone(update: Update, context: ContextTypes.DEFAULT_TYPE):
             API_ID,
             API_HASH,
             timeout=60,
-            connection_retries=5,
-            retry_delay=1,
-            device_model="Telegram Account Manager Bot",
-            system_version="1.0"
+            connection_retries=3,
+            retry_delay=2,
+            device_model="Telegram Account Manager",
+            app_version="1.0",
+            system_version="Windows 10"
         )
+        
+        logger.info(f"Created client with session: {session_name}")
         
         # الاتصال بالخادم
         await client.connect()
         logger.info("Connected to Telegram servers")
+        print("✅ Connected to Telegram")
         
         # التحقق من الاتصال
         if not await client.is_connected():
             raise Exception("Failed to connect to Telegram servers")
         
-        # التحقق إذا كان المستخدم مسجل بالفعل
+        # محاولة إرسال الرمز
         try:
-            await client.get_me()
-            logger.info("User is already registered, sending code anyway")
-        except:
-            logger.info("User needs to register")
-        
-        # طلب الرمز
-        logger.info(f"Sending code request to {phone}")
-        result = await client.send_code_request(phone)
-        logger.info(f"Code request sent successfully to {phone}")
-        
-        # التأكد من إغلاق الاتصال وحذف الجلسة المؤقتة
-        await client.disconnect()
-        await client.delete_session(session_name)
-        logger.info("Disconnected and cleaned up session")
-        
-        # تحديث رسالة الانتظار
-        await wait_message.edit_text(
-            "✅ <b>تم إرسال رمز التحقق</b>\n\n"
-            "تم إرسال رمز التحقق إلى حساب تيليجرام الخاص بك.\n\n"
-            "يرجى إدخال الرمز المكون من 5 أرقام.\n\n"
-            "ملاحظات مهمة:\n"
-            "• تحقق من تطبيق تيليجرام\n"
-            "• قد يصل الرمز بعد دقيقة واحدة\n"
-            "• لا تشارك الرمز مع أحد\n\n"
-            "أرسل /cancel لإلغاء هذه العملية."
-        )
-        
-        # تخزين تجزئة رمز الهاتف للتحقق
-        context.user_data["phone_code_hash"] = result.phone_code_hash
-        
-        return ACCOUNT_CODE
-        
-    except errors.FloodWaitError as e:
-        wait_time = e.seconds
-        logger.error(f"Flood wait error: {wait_time} seconds")
-        
-        # تحويل الثواني إلى صيغة مقروءة
-        if wait_time < 60:
-            wait_str = f"{wait_time} ثانية"
-        elif wait_time < 3600:
-            wait_str = f"{wait_time // 60} دقيقة و {wait_time % 60} ثانية"
-        else:
-            wait_str = f"{wait_time // 3600} ساعة و {(wait_time % 3600) // 60} دقيقة"
-        
-        await wait_message.edit_text(
-            f"⏳ <b>انتظار مطلوب</b>\n\n"
-            f"تلقى تيليجرام طلبات كثيرة جدًا.\n\n"
-            f"يرجى الانتظار {wait_str} ثم المحاولة مرة أخرى.\n\n"
-            f"أرسل /cancel لإلغاء هذه العملية."
-        )
-        return ConversationHandler.END
-        
-    except errors.PhoneNumberInvalidError:
-        logger.error(f"Invalid phone number: {phone}")
-        await wait_message.edit_text(
-            "❌ <b>رقم هاتف غير صالح</b>\n\n"
-            "رقم الهاتف الذي أدخلته غير صالح أو غير مسجل في تيليجرام.\n\n"
-            "يرجى التحقق من:\n"
-            "• الرقم مكتوب بشكل صحيح\n"
-            "• الرقم مسجل في تيليجرام\n"
-            "• يتضمن رمز البلد (+966 للسعودية مثلاً)\n\n"
+            logger.info(f"Sending code to: {phone}")
+            result = await client.send_code_request(phone)
+            logger.info("Code sent successfully!")
+            print("✅ Code sent successfully!")
+            
+            # تخزين تجزئة رمز الهاتف
+            context.user_data["phone_code_hash"] = result.phone_code_hash
+            logger.info("Phone code hash stored")
+            
+            # تحديث رسالة الانتظار
+            await wait_message.edit_text(
+                "✅ <b>تم إرسال رمز التحقق</b>\n\n"
+                f"تم إرسال رمز التحقق إلى الرقم: {phone}\n\n"
+                "📱 <b>الخطوات التالية:</b>\n"
+                "1. افتح تطبيق تيليجرام\n"
+                "2. ابحث عن رسالة تحتوي على رمز مكون من 5 أرقام\n"
+                "3. أرسل الرمز هنا\n\n"
+                "⚠️ ملاحظات مهمة:\n"
+                "• قد يصل الرمز بعد دقيقة\n"
+                "• تحقق من رسائل تيليجرام\n"
+                "• لا تشارك الرمز مع أحد\n\n"
+                "أرسل /cancel لإلغاء هذه العملية."
+            )
+            
+            return ACCOUNT_CODE
+            
+        except errors.FloodWaitError as e:
+            wait_time = e.seconds
+            logger.error(f"Flood wait: {wait_time} seconds")
+            
+            # تحويل الثواني إلى صيغة مقروءة
+            if wait_time < 60:
+                wait_str = f"{wait_time} ثانية"
+            elif wait_time < 3600:
+                wait_str = f"{wait_time // 60} دقيقة و {wait_time % 60} ثانية"
+            else:
+                wait_str = f"{wait_time // 3600} ساعة و {(wait_time % 3600) // 60} دقيقة"
+            
+            await wait_message.edit_text(
+                f"⏳ <b>انتظار مطلوب</b>\n\n"
+                f"تلقى تيليجرام طلبات كثيرة جدًا.\n\n"
+                f"يرجى الانتظار {wait_str} ثم المحاولة مرة أخرى.\n\n"
+                f"أرسل /cancel لإلغاء هذه العملية."
+            )
+            return ConversationHandler.END
+            
+        except errors.PhoneNumberInvalidError:
+            logger.error(f"Invalid phone number: {phone}")
+            await wait_message.edit_text(
+                "❌ <b>رقم هاتف غير صالح</b>\n\n"
+                "رقم الهاتف غير مسجل في تيليجرام.\n\n"
+                "يرجى التأكد من:\n"
+                "• الرقم صحيح ومسجل في تيليجرام\n"
+                "• يتضمن رمز البلد\n\n"
+                "أرسل /cancel لإلغاء هذه العملية."
+            )
+            return ACCOUNT_PHONE
+            
+        except errors.ApiIdInvalidError:
+            logger.error("Invalid API credentials")
+            await wait_message.edit_text(
+                "❌ <b>خطأ في الإعدادات</b>\n\n"
+                "معرفات API غير صالحة.\n\n"
+                "يرجى التواصل مع المالك.",
+            )
+            return ConversationHandler.END
+            
+        except Exception as e:
+            logger.error(f"Error sending code: {str(e)}", exc_info=True)
+            await wait_message.edit_text(
+                f"❌ <b>حدث خطأ</b>\n\n"
+                f"لم يتم إرسال الرمز.\n\n"
+                f"الخطأ: {str(e)}\n\n"
+                "يرجى المحاولة مرة أخرى لاحقاً.\n\n"
+                "أرسل /cancel لإلغاء هذه العملية."
+            )
+            return ConversationHandler.END
+            
+        finally:
+            # التأكد من إغلاق الاتصال وحذف الجلسة
+            try:
+                await client.disconnect()
+                await client.delete_session(session_name)
+                logger.info("Cleaned up session")
+            except:
+                pass
+                
+    except Exception as e:
+        logger.error(f"Unexpected error in add_account_phone: {str(e)}", exc_info=True)
+        await send_message(
+            update,
+            f"❌ <b>حدث خطأ غير متوقع</b>\n\n"
+            f"الخطأ: {str(e)}\n\n"
+            "يرجى المحاولة مرة أخرى.\n\n"
             "أرسل /cancel لإلغاء هذه العملية."
         )
         return ACCOUNT_PHONE
-        
-    except errors.ApiIdInvalidError:
-        logger.error("Invalid API_ID or API_HASH")
-        await wait_message.edit_text(
-            "❌ <b>خطأ في الإعدادات</b>\n\n"
-            "معرفات API غير صالحة.\n\n"
-            "يرجى التواصل مع المالك لإصلاح المشكلة.",
-        )
-        return ConversationHandler.END
-        
-    except errors.PhoneNumberBannedError:
-        logger.error(f"Phone number banned: {phone}")
-        await wait_message.edit_text(
-            "❌ <b>رقم الهاتف محظور</b>\n\n"
-            "هذا الرقم محظور من قبل تيليجرام.\n\n"
-            "يرجى استخدام رقم آخر.\n\n"
-            "أرسل /cancel لإلغاء هذه العملية."
-        )
-        return ConversationHandler.END
-        
-    except Exception as e:
-        logger.error(f"Error sending code request: {str(e)}", exc_info=True)
-        await wait_message.edit_text(
-            f"❌ <b>حدث خطأ</b>\n\n"
-            f"فشل في إرسال رمز التحقق.\n\n"
-            "السبب المحتمل:\n"
-            "• مشكلة في الاتصال بالإنترنت\n"
-            "• خادم تيليجرام لا يستجيب\n"
-            "• رقم الهاتف غير صحيح\n\n"
-            "يرجى المحاولة مرة أخرى لاحقاً.\n\n"
-            f"أرسل /cancel لإلغاء هذه العملية."
-        )
-        return ConversationHandler.END
 
 async def add_account_code(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """معالجة إدخال رمز التحقق."""
