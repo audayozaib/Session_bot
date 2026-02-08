@@ -43,8 +43,8 @@ MONGO_URI = os.getenv("MONGO_URI", "mongodb+srv://audayozaib:SaXaXket2GECpLvR@gi
 DB_NAME = os.getenv("DB_NAME", "giveaway")
 
 # Bot
-BOT_TOKEN = os.getenv("BOT_TOKEN", "2069413735:AAGpE9WlBwhMyb_P9vgF4Jqvii1ZtTxvEuQ")
-OWNER_ID = int(os.getenv("OWNER_ID", "778375826"))
+BOT_TOKEN = os.getenv("BOT_TOKEN", "")
+OWNER_ID = int(os.getenv("OWNER_ID", ""))
 
 # Telethon API
 API_ID = int(os.getenv("API_ID", "6825462"))
