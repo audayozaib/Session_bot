@@ -201,7 +201,6 @@ def owner_only(func):
     return wrapped
 
 # Helper function for sending messages
-# Helper function for sending messages
 async def send_message(update: Update, text: str, reply_markup=None):
     """دالة مساعدة لإرسال رسالة، معالجة كل من الرسائل والاستدعاءات."""
     if update.message:
@@ -946,6 +945,113 @@ async def add_account_phone(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "أرسل /cancel لإلغاء هذه العملية."
         )
         return ACCOUNT_PHONE
+
+async def add_account_code(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """معالجة إدخال رمز التحقق."""
+    code = update.message.text.strip()
+    
+    # التحقق الأساسي
+    if not code.isdigit():
+        await send_message(
+            update,
+            "❌ <b>رمز غير صالح</b>\n\n"
+            "يجب أن يحتوي رمز التحقق على أرقام فقط.\n\n"
+            "يرجى المحاولة مرة أخرى.\n\n"
+            "أرسل /cancel لإلغاء هذه العملية."
+        )
+        return ACCOUNT_CODE
+    
+    # تخزين الرمز في السياق
+    context.user_data["code"] = code
+    
+    # التحقق مما إذا كان 2FA مطلوبًا
+    try:
+        client = TelegramClient(
+            StringSession(),
+            API_ID,
+            API_HASH
+        )
+        
+        await client.connect()
+        
+        # محاولة تسجيل الدخول بالرمز
+        try:
+            await client.sign_in(
+                context.user_data["phone"],
+                context.user_data["phone_code_hash"],
+                code
+            )
+            
+            # إذا وصلنا إلى هنا، لا يلزم 2FA
+            session_string = client.session.save()
+            
+            await client.disconnect()
+            
+            # حفظ الحساب في قاعدة البيانات
+            user_id = update.effective_user.id
+            phone = context.user_data["phone"]
+            
+            account_data = {
+                "user_id": user_id,
+                "phone_number": phone,
+                "session_data": encrypt_data(session_string),
+                "created_at": datetime.datetime.now()
+            }
+            
+            account_id = accounts_collection.insert_one(account_data).inserted_id
+            
+            # تسجيل الحدث
+            log_event("account_added", f"Account {phone} added for user {user_id}", user_id)
+            
+            # إعلام المالك
+            await notify_owner(
+                context,
+                f"📱 <b>حساب جديد مضاف</b>\n\n"
+                f"المستخدم: {update.effective_user.first_name} (@{update.effective_user.username})\n"
+                f"الحساب: {phone}\n"
+                f"معرف الحساب: {account_id}"
+            )
+            
+            # إنشاء لوحة مفاتيح مع الخيارات
+            keyboard = [
+                [InlineKeyboardButton("📱 حساباتي", callback_data="accounts")],
+                [InlineKeyboardButton("⬅️ العودة للقائمة الرئيسية", callback_data="main_menu")]
+            ]
+            
+            await send_message(
+                update,
+                "✅ <b>تمت إضافة الحساب بنجاح</b>\n\n"
+                f"تمت إضافة حسابك {phone} إلى البوت.\n\n"
+                "يمكنك الآن استخدام هذا الحساب لإنشاء المجموعات والميزات الأخرى.\n\n"
+                "استخدم /accounts لإدارة حساباتك.",
+                reply_markup=InlineKeyboardMarkup(keyboard)
+            )
+            
+            return ConversationHandler.END
+            
+        except errors.SessionPasswordNeededError:
+            # 2FA مطلوب
+            await client.disconnect()
+            
+            await send_message(
+                update,
+                "🔐 <b>مطلوب مصادقة ثنائية العامل</b>\n\n"
+                "هذا الحساب لديه 2FA مفعّل.\n\n"
+                "يرجى إدخال كلمة مرور 2FA الخاصة بك.\n\n"
+                "أرسل /cancel لإلغاء هذه العملية."
+            )
+            return ACCOUNT_PASSWORD
+            
+    except Exception as e:
+        logger.error(f"Error during sign in: {e}")
+        await send_message(
+            update,
+            f"❌ <b>خطأ</b>\n\n"
+            f"فشل في تسجيل الدخول: {str(e)}\n\n"
+            "يرجى التحقق من رمز التحقق والمحاولة مرة أخرى.\n\n"
+            "أرسل /cancel لإلغاء هذه العملية."
+        )
+        return ACCOUNT_CODE
 
 async def add_account_password(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """معالجة إدخال كلمة مرور 2FA."""
@@ -1959,440 +2065,6 @@ async def create_groups_with_accounts(update: Update, context: ContextTypes.DEFA
             f"يرجى المحاولة مرة أخرى لاحقًا.",
             parse_mode=ParseMode.HTML
         )
-
-# Error handler
-async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """تسجيل الخطأ وإرسال رسالة تيليجرام لإعلام المالك."""
-    logger.error("Exception while handling an update:", exc_info=context.error)
-    
-    # إعلام المالك بالخطأ
-    try:
-        # تنسيق الخطأ لتجنب مشاكل HTML
-        error_message = str(context.error).replace("<", "&lt;").replace(">", "&gt;")
-        update_str = str(update).replace("<", "&lt;").replace(">", "&gt;")
-        
-        await context.bot.send_message(
-            chat_id=OWNER_ID,
-            text=f"⚠️ <b>خطأ</b>\n\n"
-                 f"حدث خطأ أثناء معالجة تحديث:\n\n"
-                 f"الخطأ: {error_message}\n\n"
-                 f"التحديث: {update_str}",
-            parse_mode=ParseMode.HTML
-        )
-    except Exception as e:
-        logger.error(f"Failed to send error notification to owner: {e}")
-
-async def add_account_code(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """معالجة إدخال رمز التحقق."""
-    code = update.message.text.strip()
-    
-    # التحقق الأساسي
-    if not code.isdigit():
-        await send_message(
-            update,
-            "❌ <b>رمز غير صالح</b>\n\n"
-            "يجب أن يحتوي رمز التحقق على أرقام فقط.\n\n"
-            "يرجى المحاولة مرة أخرى.\n\n"
-            "أرسل /cancel لإلغاء هذه العملية."
-        )
-        return ACCOUNT_CODE
-    
-    # تخزين الرمز في السياق
-    context.user_data["code"] = code
-    
-    # التحقق مما إذا كان 2FA مطلوبًا
-    try:
-        client = TelegramClient(
-            StringSession(),
-            API_ID,
-            API_HASH
-        )
-        
-        await client.connect()
-        
-        # محاولة تسجيل الدخول بالرمز
-        try:
-            await client.sign_in(
-                context.user_data["phone"],
-                context.user_data["phone_code_hash"],
-                code
-            )
-            
-            # إذا وصلنا إلى هنا، لا يلزم 2FA
-            session_string = client.session.save()
-            
-            await client.disconnect()
-            
-            # حفظ الحساب في قاعدة البيانات
-            user_id = update.effective_user.id
-            phone = context.user_data["phone"]
-            
-            account_data = {
-                "user_id": user_id,
-                "phone_number": phone,
-                "session_data": encrypt_data(session_string),
-                "created_at": datetime.datetime.now()
-            }
-            
-            account_id = accounts_collection.insert_one(account_data).inserted_id
-            
-            # تسجيل الحدث
-            log_event("account_added", f"Account {phone} added for user {user_id}", user_id)
-            
-            # إعلام المالك
-            await notify_owner(
-                context,
-                f"📱 <b>حساب جديد مضاف</b>\n\n"
-                f"المستخدم: {update.effective_user.first_name} (@{update.effective_user.username})\n"
-                f"الحساب: {phone}\n"
-                f"معرف الحساب: {account_id}"
-            )
-            
-            # إنشاء لوحة مفاتيح مع الخيارات
-            keyboard = [
-                [InlineKeyboardButton("📱 حساباتي", callback_data="accounts")],
-                [InlineKeyboardButton("⬅️ العودة للقائمة الرئيسية", callback_data="main_menu")]
-            ]
-            
-            await send_message(
-                update,
-                "✅ <b>تمت إضافة الحساب بنجاح</b>\n\n"
-                f"تمت إضافة حسابك {phone} إلى البوت.\n\n"
-                "يمكنك الآن استخدام هذا الحساب لإنشاء المجموعات والميزات الأخرى.\n\n"
-                "استخدم /accounts لإدارة حساباتك.",
-                reply_markup=InlineKeyboardMarkup(keyboard)
-            )
-            
-            return ConversationHandler.END
-            
-        except errors.SessionPasswordNeededError:
-            # 2FA مطلوب
-            await client.disconnect()
-            
-            await send_message(
-                update,
-                "🔐 <b>مطلوب مصادقة ثنائية العامل</b>\n\n"
-                "هذا الحساب لديه 2FA مفعّل.\n\n"
-                "يرجى إدخال كلمة مرور 2FA الخاصة بك.\n\n"
-                "أرسل /cancel لإلغاء هذه العملية."
-            )
-            return ACCOUNT_PASSWORD
-            
-    except Exception as e:
-        logger.error(f"Error during sign in: {e}")
-        await send_message(
-            update,
-            f"❌ <b>خطأ</b>\n\n"
-            f"فشل في تسجيل الدخول: {str(e)}\n\n"
-            "يرجى التحقق من رمز التحقق والمحاولة مرة أخرى.\n\n"
-            "أرسل /cancel لإلغاء هذه العملية."
-        )
-        return ACCOUNT_CODE
-
-async def add_account_password(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """معالجة إدخال كلمة مرور 2FA."""
-    password = update.message.text.strip()
-    
-    # تخزين كلمة المرور في السياق
-    context.user_data["password"] = password
-    
-    try:
-        client = TelegramClient(
-            StringSession(),
-            API_ID,
-            API_HASH
-        )
-        
-        await client.connect()
-        
-        # محاولة تسجيل الدخول بالرمز وكلمة المرور
-        await client.sign_in(
-            context.user_data["phone"],
-            context.user_data["phone_code_hash"],
-            context.user_data["code"],
-            password=password
-        )
-        
-        # الحصول على سلسلة الجلسة
-        session_string = client.session.save()
-        
-        await client.disconnect()
-        
-        # حفظ الحساب في قاعدة البيانات
-        user_id = update.effective_user.id
-        phone = context.user_data["phone"]
-        
-        account_data = {
-            "user_id": user_id,
-            "phone_number": phone,
-            "session_data": encrypt_data(session_string),
-            "created_at": datetime.datetime.now()
-        }
-        
-        account_id = accounts_collection.insert_one(account_data).inserted_id
-        
-        # تسجيل الحدث
-        log_event("account_added", f"Account {phone} added for user {user_id}", user_id)
-        
-        # إعلام المالك
-        await notify_owner(
-            context,
-            f"📱 <b>حساب جديد مضاف</b>\n\n"
-            f"المستخدم: {update.effective_user.first_name} (@{update.effective_user.username})\n"
-            f"الحساب: {phone}\n"
-            f"معرف الحساب: {account_id}"
-        )
-        
-        # إنشاء لوحة مفاتيح مع الخيارات
-        keyboard = [
-            [InlineKeyboardButton("📱 حساباتي", callback_data="accounts")],
-            [InlineKeyboardButton("⬅️ العودة للقائمة الرئيسية", callback_data="main_menu")]
-        ]
-        
-        await send_message(
-            update,
-            "✅ <b>تمت إضافة الحساب بنجاح</b>\n\n"
-            f"تمت إضافة حسابك {phone} إلى البوت.\n\n"
-            "يمكنك الآن استخدام هذا الحساب لإنشاء المجموعات والميزات الأخرى.\n\n"
-            "استخدم /accounts لإدارة حساباتك.",
-            reply_markup=InlineKeyboardMarkup(keyboard)
-        )
-        
-        return ConversationHandler.END
-        
-    except Exception as e:
-        logger.error(f"Error during sign in with password: {e}")
-        await send_message(
-            update,
-            f"❌ <b>خطأ</b>\n\n"
-            f"فشل في تسجيل الدخول: {str(e)}\n\n"
-            "يرجى التحقق من كلمة مرور 2FA والمحاولة مرة أخرى.\n\n"
-            "أرسل /cancel لإلغاء هذه العملية."
-        )
-        return ACCOUNT_PASSWORD
-
-async def create_groups_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """بدء عملية إنشاء المجموعات."""
-    await send_message(
-        update,
-        "👥 <b>إنشاء مجموعات</b>\n\n"
-        "دعنا نكوين إعدادات إنشاء المجموعات الخاصة بك.\n\n"
-        "أولاً، ماذا تريد أن تسمي مجموعاتك؟\n\n"
-        "يمكنك استخدام نمط مثل 'مجموعتي' وسينشئ البوت 'مجموعتي 1'، 'مجموعتي 2'، إلخ.\n\n"
-        "أرسل /cancel لإلغاء هذه العملية."
-    )
-    return GROUP_NAME
-
-async def create_groups_name(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """معالجة إدخال اسم المجموعة."""
-    name = update.message.text.strip()
-    
-    if not name:
-        await send_message(
-            update,
-            "❌ <b>اسم غير صالح</b>\n\n"
-            "يرجى إدخال اسم مجموعة صالح.\n\n"
-            "أرسل /cancel لإلغاء هذه العملية."
-        )
-        return GROUP_NAME
-    
-    # تخزين الاسم في السياق
-    context.user_data["group_name"] = name
-    
-    await send_message(
-        update,
-        f"✅ <b>تم تعيين اسم المجموعة</b>\n\n"
-        f"سيتم تسمية المجموعات: '{name} 1'، '{name} 2'، إلخ.\n\n"
-        "كم مجموعة تريد إنشاءها؟\n\n"
-        "يرجى إدخال رقم بين 1 و 50.\n\n"
-        "أرسل /cancel لإلغاء هذه العملية."
-    )
-    return GROUP_COUNT
-
-async def create_groups_count(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """معالجة إدخال عدد المجموعات."""
-    count_text = update.message.text.strip()
-    
-    try:
-        count = int(count_text)
-        if count < 1 or count > 50:
-            raise ValueError("Count out of range")
-    except ValueError:
-        await send_message(
-            update,
-            "❌ <b>عدد غير صالح</b>\n\n"
-            "يرجى إدخال رقم بين 1 و 50.\n\n"
-            "أرسل /cancel لإلغاء هذه العملية."
-        )
-        return GROUP_COUNT
-    
-    # تخزين العدد في السياق
-    context.user_data["group_count"] = count
-    
-    await send_message(
-        update,
-        f"✅ <b>تم تعيين عدد المجموعات</b>\n\n"
-        f"ستقوم بإنشاء {count} مجموعة.\n\n"
-        "كم من التأخير تريده بين إنشاء كل مجموعة؟\n\n"
-        "يرجى إدخال التأخير بالثواني (بين 5 و 60).\n\n"
-        "أرسل /cancel لإلغاء هذه العملية."
-    )
-    return GROUP_DELAY
-
-async def create_groups_delay(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """معالجة إدخال التأخير بين المجموعات."""
-    delay_text = update.message.text.strip()
-    
-    try:
-        delay = int(delay_text)
-        if delay < 5 or delay > 60:
-            raise ValueError("Delay out of range")
-    except ValueError:
-        await send_message(
-            update,
-            "❌ <b>تأخير غير صالح</b>\n\n"
-            "يرجى إدخال رقم بين 5 و 60.\n\n"
-            "أرسل /cancel لإلغاء هذه العملية."
-        )
-        return GROUP_DELAY
-    
-    # تخزين التأخير في السياق
-    context.user_data["group_delay"] = delay
-    
-    # الحصول على حسابات المستخدم
-    user_id = update.effective_user.id
-    accounts = get_user_accounts(user_id)
-    
-    # تصفية الحسابات ذات الجلسات النشطة
-    active_accounts = []
-    for account in accounts:
-        if "session_data" in account and account["session_data"]:
-            active_accounts.append(account)
-    
-    if not active_accounts:
-        await send_message(
-            update,
-            "❌ <b>لا توجد جلسات نشطة</b>\n\n"
-            "ليس لديك أي حسابات بها جلسات نشطة.\n\n"
-            "يرجى إضافة حساب به جلسة نشطة أولاً.\n\n"
-            "أرسل /cancel لإلغاء هذه العملية."
-        )
-        return ConversationHandler.END
-    
-    # إنشاء لوحة مفاتيح مع خيارات الحسابات
-    keyboard = []
-    
-    # خيار استخدام جميع الحسابات
-    keyboard.append([
-        InlineKeyboardButton(
-            f"استخدام جميع {len(active_accounts)} حساب",
-            callback_data="use_all_accounts"
-        )
-    ])
-    
-    # خيار تحديد حسابات محددة
-    for account in active_accounts:
-        phone = account.get("phone_number", "N/A")
-        keyboard.append([
-            InlineKeyboardButton(
-                f"استخدام {phone}",
-                callback_data=f"use_account_{account.get('_id')}"
-            )
-        ])
-    
-    # زر الإلغاء
-    keyboard.append([InlineKeyboardButton("❌ إلغاء", callback_data="cancel_groups")])
-    
-    reply_markup = InlineKeyboardMarkup(keyboard)
-    
-    await send_message(
-        update,
-        "✅ <b>تم تكوين الإعدادات</b>\n\n"
-        f"اسم المجموعة: {context.user_data['group_name']}\n"
-        f"عدد المجموعات: {context.user_data['group_count']}\n"
-        f"التأخير بين المجموعات: {context.user_data['group_delay']} ثانية\n\n"
-        "يرجى تحديد الحساب (الحسابات) التي تريد استخدامها لإنشاء المجموعات:",
-        reply_markup=reply_markup
-    )
-    return ConversationHandler.END
-
-async def cancel_groups(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """إلغاء عملية إنشاء المجموعات."""
-    # إنشاء لوحة مفاتيح مع الخيارات
-    keyboard = [
-        [InlineKeyboardButton("👥 المجموعات", callback_data="groups")],
-        [InlineKeyboardButton("⬅️ العودة للقائمة الرئيسية", callback_data="main_menu")]
-    ]
-    
-    await send_message(
-        update,
-        "❌ <b>تم إلغاء العملية</b>\n\n"
-        "تم إلغاء عملية إنشاء المجموعات.\n\n"
-        "استخدم /groups للمحاولة مرة أخرى.",
-        reply_markup=InlineKeyboardMarkup(keyboard)
-    )
-    return ConversationHandler.END
-
-# Callback query handlers
-async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """معالجة استدعاءات الأزرار."""
-    query = update.callback_query
-    await query.answer()
-    
-    data = query.data
-    user_id = update.effective_user.id
-    
-    # التنقل في القائمة الرئيسية
-    if data == "main_menu":
-        # إنشاء لوحة مفاتيح للقائمة الرئيسية
-        keyboard = [
-            [InlineKeyboardButton("📱 حساباتي", callback_data="accounts")],
-            [InlineKeyboardButton("👥 المجموعات", callback_data="groups")],
-            [InlineKeyboardButton("📊 حالتي", callback_data="status")],
-            [InlineKeyboardButton("📊 إحصائياتي", callback_data="stats")],
-        ]
-        
-        await query.message.reply_text(
-            "🏠 <b>القائمة الرئيسية</b>\n\n"
-            "يرجى اختيار الخيار الذي تريده:",
-            reply_markup=InlineKeyboardMarkup(keyboard),
-            parse_mode=ParseMode.HTML
-        )
-        return
-    
-    # زر الحالة
-    elif data == "status":
-        await status_command(update, context)
-        return
-    
-    # زر الإحصائيات
-    elif data == "stats":
-        await stats_command(update, context)
-        return
-    
-    # زر الحسابات
-    elif data == "accounts":
-        await accounts_command(update, context)
-        return
-    
-    # زر المجموعات
-    elif data == "groups":
-        await groups_command(update, context)
-        return
-    
-    # زر إضافة حساب
-    elif data == "add_account":
-        # بدء محادثة إضافة الحساب
-        return await add_account_start(update, context)
-    
-    # زر إنشاء مجموعات
-    elif data == "create_groups":
-        # بدء محادثة إنشاء المجموعات
-        return await create_groups_start(update, context)
-    
-    # إلغاء إنشاء المجموعات
-    elif data == "cancel_groups":
-        await cancel_groups(update, context)
 
 # Error handler
 async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
