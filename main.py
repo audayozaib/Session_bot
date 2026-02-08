@@ -217,26 +217,6 @@ async def send_message(update: Update, text: str, reply_markup=None):
         )
     return None
 
-
-async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """دالة لمعالجة أي أخطاء غير متوقعة في البوت ومنع توقفه."""
-    logger.error(f"حدث خطأ غير متوقع: {context.error}", exc_info=context.error)
-    
-    # محاولة إبلاغ المستخدم (إذا أمكن)
-    if isinstance(update, Update) and update.effective_message:
-        await update.effective_message.reply_text(
-            "⚠️ حدث خطأ داخلي في النظام، تم إبلاغ المطور."
-        )
-    
-    # إبلاغ المالك بالتفاصيل
-    try:
-        await context.bot.send_message(
-            chat_id=OWNER_ID,
-            text=f"🚨 <b>تقرير خطأ:</b>\n<code>{str(context.error)[:1000]}</code>",
-            parse_mode=ParseMode.HTML
-        )
-    except:
-        pass
 # Command handlers
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """معالجة أمر /start."""
@@ -710,7 +690,7 @@ async def accounts_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     accounts_text = "📱 <b>حساباتك</b>\n\n"
     
     for i, account in enumerate(accounts):
-        account_id = account.get("_id", "N/A")
+        account_id = str(account.get("_id", "N/A"))
         phone = account.get("phone_number", "N/A")
         created_at = account.get("created_at", datetime.datetime.now())
         created_at_str = created_at.strftime("%Y-%m-%d")
@@ -1126,10 +1106,11 @@ async def create_groups_delay(update: Update, context: ContextTypes.DEFAULT_TYPE
     # خيار تحديد حسابات محددة
     for account in active_accounts:
         phone = account.get("phone_number", "N/A")
+        account_id = str(account.get("_id", "N/A"))
         keyboard.append([
             InlineKeyboardButton(
                 f"استخدام {phone}",
-                callback_data=f"use_account_{account.get('_id')}"
+                callback_data=f"use_account_{account_id}"
             )
         ])
     
@@ -1384,7 +1365,7 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         keyboard = []
         
         for i, account in enumerate(accounts):
-            account_id = account.get("_id", "N/A")
+            account_id = str(account.get("_id", "N/A"))
             phone = account.get("phone_number", "N/A")
             created_at = account.get("created_at", datetime.datetime.now())
             created_at_str = created_at.strftime("%Y-%m-%d")
@@ -1886,17 +1867,6 @@ async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> N
         )
     except Exception as e:
         logger.error(f"Failed to send error notification to owner: {e}")
-
-async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """تسجيل الأخطاء وإرسال رسالة تنبيه للمالك."""
-    logger.error(f"Exception while handling an update: {context.error}")
-    
-    # إرسال تفاصيل الخطأ للمالك (اختياري)
-    error_message = f"❌ <b>حدث خطأ في النظام:</b>\n<code>{context.error}</code>"
-    try:
-        await context.bot.send_message(chat_id=OWNER_ID, text=error_message, parse_mode=ParseMode.HTML)
-    except:
-        pass
 
 # Main function
 def main():
