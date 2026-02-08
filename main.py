@@ -787,7 +787,7 @@ async def add_account_phone(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return ConversationHandler.END
 
 async def add_account_code(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """معالجة إدخال كود التحقق مع إعادة الإرسال عند انتهاء الصلاحية."""
+    """معالجة كود التحقق مع إعادة الإرسال الصحيحة."""
     code = update.message.text.strip().replace(' ', '')
 
     phone = context.user_data.get("phone")
@@ -834,24 +834,20 @@ async def add_account_code(update: Update, context: ContextTypes.DEFAULT_TYPE):
     except errors.PhoneCodeExpiredError:
         await wait_msg.edit_text("♻️ انتهت صلاحية الكود، جارٍ إرسال كود جديد...")
 
-        await client.disconnect()
-
-        new_session = StringSession()
-        new_client = TelegramClient(new_session, API_ID, API_HASH)
-        await new_client.connect()
-
-        result = await new_client.send_code_request(phone)
+        result = await client.send_code_request(phone)
 
         context.user_data["phone_code_hash"] = result.phone_code_hash
-        context.user_data["session"] = new_session.save()
-
-        await new_client.disconnect()
+        context.user_data["session"] = client.session.save()
 
         await update.message.reply_text(
             "📩 تم إرسال كود جديد.\n"
             "أرسل رمز التحقق الجديد:"
         )
 
+        return ACCOUNT_CODE
+
+    except errors.PhoneCodeInvalidError:
+        await wait_msg.edit_text("❌ الكود غير صحيح، حاول مرة أخرى.")
         return ACCOUNT_CODE
 
     except Exception as e:
