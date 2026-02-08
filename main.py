@@ -746,8 +746,6 @@ async def add_account_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
     return ACCOUNT_PHONE
 
-# استبدل دالة add_account_phone بالكود التالي
-
 async def add_account_phone(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """معالجة إدخال رقم الهاتف."""
     try:
@@ -893,6 +891,16 @@ async def add_account_phone(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
             return ConversationHandler.END
             
+        except errors.ServerError as e:
+            logger.error(f"Telegram server error: {e}")
+            await wait_message.edit_text(
+                "❌ <b>خطأ في خوادم تيليجرام</b>\n\n"
+                "يحدث حاليًا مشكلة في خوادم تيليجرام.\n\n"
+                "يرجى المحاولة مرة أخرى بعد قليل.\n\n"
+                "أرسل /cancel لإلغاء هذه العملية."
+            )
+            return ConversationHandler.END
+            
         except Exception as e:
             logger.error(f"Error sending code: {str(e)}", exc_info=True)
             error_msg = str(e)
@@ -904,6 +912,10 @@ async def add_account_phone(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 error_msg = "انتهت مهلة الاتصال"
             elif "blocked" in error_msg.lower():
                 error_msg = "تم حظر الرقم"
+            elif "SSL" in error_msg:
+                error_msg = "مشكلة في الاتصال الآمن"
+            elif "proxy" in error_msg.lower():
+                error_msg = "مشكلة في إعدادات البروكسي"
             
             await wait_message.edit_text(
                 f"❌ <b>حدث خطأ</b>\n\n"
@@ -2075,7 +2087,6 @@ async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> N
     except Exception as e:
         logger.error(f"Failed to send error notification to owner: {e}")
 
-# Main function
 def main():
     """بدء البوت."""
     try:
@@ -2111,10 +2122,20 @@ def main():
             print(f"❌ Failed to connect to MongoDB: {e}")
             return
         
-        # إنشاء التطبيق
-        logger.info("Creating application...")
-        print("🔧 Creating application...")
-        application = Application.builder().token(BOT_TOKEN).build()
+        # بناء التطبيق مع إعدادات المهلة الصحيحة
+        application = (
+            Application.builder()
+            .token(BOT_TOKEN)
+            .get_updates_connection_timeout(30)
+            .get_updates_pool_timeout(30)
+            .get_updates_read_timeout(30)
+            .get_updates_write_timeout(30)
+            .connect_timeout(30)
+            .pool_timeout(30)
+            .read_timeout(30)
+            .write_timeout(30)
+            .build()
+        )
         
         # دالة الإلغاء العامة
         async def cancel_any(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -2147,28 +2168,6 @@ def main():
             )
             return ConversationHandler.END
         
-        # إضافة معالجات الأوامر
-        logger.info("Adding command handlers...")
-        print("📝 Adding command handlers...")
-        application.add_handler(CommandHandler("start", start))
-        application.add_handler(CommandHandler("help", help_command))
-        application.add_handler(CommandHandler("status", status_command))
-        application.add_handler(CommandHandler("stats", stats_command))
-        
-        # أوامر المالك
-        application.add_handler(CommandHandler("approve", approve_command))
-        application.add_handler(CommandHandler("reject", reject_command))
-        application.add_handler(CommandHandler("users", users_command))
-        application.add_handler(CommandHandler("admin_stats", admin_stats_command))
-        application.add_handler(CommandHandler("logs", logs_command))
-        application.add_handler(CommandHandler("settings", settings_command))
-        
-        # إدارة الحسابات
-        application.add_handler(CommandHandler("accounts", accounts_command))
-        
-        # إنشاء المجموعات
-        application.add_handler(CommandHandler("groups", groups_command))
-        
         # معالج محادثة الحساب
         account_conv_handler = ConversationHandler(
             entry_points=[
@@ -2190,7 +2189,7 @@ def main():
                 ],
             },
             fallbacks=[CommandHandler("cancel", cancel_any)],
-            per_message=True,
+            per_message=False,
             allow_reentry=True,
             name="account_conversation"
         )
@@ -2216,10 +2215,32 @@ def main():
                 ],
             },
             fallbacks=[CommandHandler("cancel", cancel_any)],
-            per_message=True,
+            per_message=False,
             allow_reentry=True,
             name="group_conversation"
         )
+        
+        # إضافة معالجات الأوامر
+        logger.info("Adding command handlers...")
+        print("📝 Adding command handlers...")
+        application.add_handler(CommandHandler("start", start))
+        application.add_handler(CommandHandler("help", help_command))
+        application.add_handler(CommandHandler("status", status_command))
+        application.add_handler(CommandHandler("stats", stats_command))
+        
+        # أوامر المالك
+        application.add_handler(CommandHandler("approve", approve_command))
+        application.add_handler(CommandHandler("reject", reject_command))
+        application.add_handler(CommandHandler("users", users_command))
+        application.add_handler(CommandHandler("admin_stats", admin_stats_command))
+        application.add_handler(CommandHandler("logs", logs_command))
+        application.add_handler(CommandHandler("settings", settings_command))
+        
+        # إدارة الحسابات
+        application.add_handler(CommandHandler("accounts", accounts_command))
+        
+        # إنشاء المجموعات
+        application.add_handler(CommandHandler("groups", groups_command))
         
         # إضافة معالجات المحادثة
         application.add_handler(account_conv_handler)
@@ -2235,19 +2256,11 @@ def main():
         logger.info("Starting Telegram Account Manager Bot...")
         print("🚀 Starting bot...")
         
-        # تشغيل البوت مع إعدادات محسنة
+        # تشغيل البوت
         print("⏳ Bot is running... Press Ctrl+C to stop")
         print("=" * 50)
         
-        application.run_polling(
-            drop_pending_updates=True,
-            allowed_updates=Update.ALL_TYPES,
-            timeout=30,
-            read_timeout=30,
-            write_timeout=30,
-            connect_timeout=30,
-            pool_timeout=30
-        )
+        application.run_polling(drop_pending_updates=True)
         
     except KeyboardInterrupt:
         logger.info("Bot stopped by user")
