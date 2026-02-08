@@ -753,166 +753,154 @@ async def add_account_phone(update: Update, context: ContextTypes.DEFAULT_TYPE):
         phone = update.message.text.strip().replace(' ', '')
         if not phone.startswith('+'):
             phone = '+' + phone
-        
+
+        context.user_data.clear()
         context.user_data["phone"] = phone
-        wait_msg = await update.message.reply_text("⏳ <b>جاري طلب الرمز من تيليجرام...</b>", parse_mode=ParseMode.HTML)
-        
-        # إنشاء العميل وحفظه في context لضمان عدم انتهاء الجلسة
-        client = TelegramClient(StringSession(), API_ID, API_HASH)
+
+        wait_msg = await update.message.reply_text(
+            "⏳ <b>جاري طلب الرمز من تيليجرام...</b>",
+            parse_mode=ParseMode.HTML
+        )
+
+        session = StringSession()
+        client = TelegramClient(session, API_ID, API_HASH)
         await client.connect()
-        
-        try:
-            result = await client.send_code_request(phone)
-            # حفظ الـ Hash والعميل مؤقتاً
-            context.user_data["phone_code_hash"] = result.phone_code_hash
-            
-            await wait_msg.edit_text(
-                f"✅ <b>تم إرسال الرمز</b>\n\nالرقم: <code>{phone}</code>\n"
-                "يرجى إدخال الكود بسرعة (لديك دقيقتان قبل انتهاء الصلاحية).",
-                parse_mode=ParseMode.HTML
-            )
-            return ACCOUNT_CODE
-        except Exception as e:
-            await wait_msg.edit_text(f"❌ خطأ في طلب الرمز: {str(e)}")
-            return ConversationHandler.END
-        finally:
-            await client.disconnect() # نفصل هنا ونعيد الاتصال في الدالة التالية بنفس الـ Hash
-            
+
+        result = await client.send_code_request(phone)
+
+        context.user_data["phone_code_hash"] = result.phone_code_hash
+        context.user_data["session"] = session.save()
+
+        await wait_msg.edit_text(
+            f"✅ <b>تم إرسال الرمز</b>\n\n"
+            f"الرقم: <code>{phone}</code>\n"
+            "أرسل كود التحقق الآن.",
+            parse_mode=ParseMode.HTML
+        )
+
+        await client.disconnect()
+        return ACCOUNT_CODE
+
     except Exception as e:
         logger.error(f"Error in add_account_phone: {e}")
+        await update.message.reply_text("❌ فشل إرسال الرمز، حاول لاحقاً.")
         return ConversationHandler.END
 
 async def add_account_code(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """معالجة الكود ومعالجة خطأ انتهاء الصلاحية."""
+    """معالجة إدخال كود التحقق."""
     code = update.message.text.strip().replace(' ', '')
+
     phone = context.user_data.get("phone")
     phone_code_hash = context.user_data.get("phone_code_hash")
-    
-    if not phone_code_hash:
-        await update.message.reply_text("❌ انتهت الجلسة، يرجى البدء من جديد باستخدام /start")
+    session_str = context.user_data.get("session")
+
+    if not all([phone, phone_code_hash, session_str]):
+        await update.message.reply_text("❌ انتهت الجلسة، استخدم /start من جديد.")
         return ConversationHandler.END
 
     wait_msg = await update.message.reply_text("🔄 جاري التحقق من الكود...")
-    client = TelegramClient(StringSession(), API_ID, API_HASH)
-    
+
+    client = TelegramClient(StringSession(session_str), API_ID, API_HASH)
+    await client.connect()
+
     try:
-        await client.connect()
-        # محاولة تسجيل الدخول
-        await client.sign_in(phone=phone, code=code, phone_code_hash=phone_code_hash)
-        
-        # حفظ الحساب بنجاح
-        session_str = client.session.save()
+        await client.sign_in(
+            phone=phone,
+            code=code,
+            phone_code_hash=phone_code_hash
+        )
+
+        session_final = client.session.save()
+
         accounts_collection.insert_one({
             "user_id": update.effective_user.id,
             "phone_number": phone,
-            "session_data": encrypt_data(session_str),
+            "session_data": encrypt_data(session_final),
             "created_at": datetime.datetime.now()
         })
-        
-        await wait_msg.edit_text(f"✅ تم ربط الحساب <code>{phone}</code> بنجاح!", parse_mode=ParseMode.HTML)
+
+        await wait_msg.edit_text(
+            f"✅ تم ربط الحساب <code>{phone}</code> بنجاح!",
+            parse_mode=ParseMode.HTML
+        )
+
         return ConversationHandler.END
 
     except errors.SessionPasswordNeededError:
-        context.user_data["code"] = code # حفظ الكود لاستخدامه في المرحلة التالية
-        await wait_msg.edit_text("🔐 الحساب محمي بالتحقق الثنائي (2FA).\nأرسل كلمة السر الآن:")
+        context.user_data["session"] = client.session.save()
+        await wait_msg.edit_text("🔐 الحساب محمي بـ 2FA\nأرسل كلمة المرور:")
         return ACCOUNT_PASSWORD
+
     except errors.PhoneCodeExpiredError:
-        await wait_msg.edit_text("❌ انتهت صلاحية الكود. يرجى إعادة المحاولة من جديد.")
+        await wait_msg.edit_text("❌ انتهت صلاحية الكود.")
         return ConversationHandler.END
+
     except Exception as e:
-        await wait_msg.edit_text(f"❌ حدث خطأ: {str(e)}")
+        await wait_msg.edit_text(f"❌ خطأ: {str(e)}")
         return ConversationHandler.END
+
     finally:
         await client.disconnect()
 
 async def add_account_password(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """معالجة إدخال كلمة مرور 2FA."""
+    """معالجة كلمة مرور التحقق الثنائي."""
     password = update.message.text.strip()
-    
+    session_str = context.user_data.get("session")
+    phone = context.user_data.get("phone")
+
+    if not session_str or not phone:
+        await send_message(update, "❌ انتهت الجلسة، استخدم /start.")
+        return ConversationHandler.END
+
+    client = TelegramClient(StringSession(session_str), API_ID, API_HASH)
+    await client.connect()
+
     try:
-        # إنشاء عميل Telethon جديد
-        client = TelegramClient(
-            StringSession(),
-            API_ID,
-            API_HASH
-        )
-        
-        await client.connect()
-        
-        # تسجيل الدخول مع جميع المعلمات المطلوبة
-        await client.sign_in(
-            phone=context.user_data["phone"],
-            code=context.user_data["code"],
-            password=password,
-            phone_code_hash=context.user_data["phone_code_hash"]
-        )
-        
-        # إذا وصلنا هنا، التسجيل ناجح
-        session_string = client.session.save()
-        await client.disconnect()
-        
-        # حفظ الحساب في قاعدة البيانات
-        user_id = update.effective_user.id
-        phone = context.user_data["phone"]
-        
-        account_data = {
-            "user_id": user_id,
+        await client.sign_in(password=password)
+
+        session_final = client.session.save()
+
+        account_id = accounts_collection.insert_one({
+            "user_id": update.effective_user.id,
             "phone_number": phone,
-            "session_data": encrypt_data(session_string),
+            "session_data": encrypt_data(session_final),
             "created_at": datetime.datetime.now()
-        }
-        
-        account_id = accounts_collection.insert_one(account_data).inserted_id
-        
-        # تسجيل الحدث
-        log_event("account_added", f"Account {phone} added for user {user_id}", user_id)
-        
-        # إعلام المالك
+        }).inserted_id
+
+        log_event("account_added", f"Account {phone} added", update.effective_user.id)
+
         await notify_owner(
             context,
-            f"📱 <b>حساب جديد مضاف</b>\n\n"
-            f"المستخدم: {update.effective_user.first_name} (@{update.effective_user.username})\n"
+            f"📱 <b>حساب جديد</b>\n\n"
+            f"المستخدم: {update.effective_user.id}\n"
             f"الحساب: {phone}\n"
-            f"معرف الحساب: {account_id}"
+            f"ID: {account_id}"
         )
-        
-        # إنشاء لوحة مفاتيح مع الخيارات
+
         keyboard = [
             [InlineKeyboardButton("📱 حساباتي", callback_data="accounts")],
-            [InlineKeyboardButton("⬅️ العودة للقائمة الرئيسية", callback_data="main_menu")]
+            [InlineKeyboardButton("⬅️ القائمة الرئيسية", callback_data="main_menu")]
         ]
-        
+
         await send_message(
             update,
-            "✅ <b>تمت إضافة الحساب بنجاح</b>\n\n"
-            f"تمت إضافة حسابك {phone} إلى البوت.\n\n"
-            "يمكنك الآن استخدام هذا الحساب لإنشاء المجموعات والميزات الأخرى.\n\n"
-            "استخدم /accounts لإدارة حساباتك.",
+            f"✅ <b>تمت إضافة الحساب {phone} بنجاح</b>",
             reply_markup=InlineKeyboardMarkup(keyboard)
         )
-        
+
         return ConversationHandler.END
-        
+
     except errors.PasswordHashInvalidError:
-        await send_message(
-            update,
-            "❌ <b>كلمة مرور غير صحيحة</b>\n\n"
-            "كلمة مرور 2FA التي أدخلتها غير صحيحة.\n\n"
-            "يرجى التحقق من كلمة المرور والمحاولة مرة أخرى.\n\n"
-            "أرسل /cancel لإلغاء هذه العملية."
-        )
+        await send_message(update, "❌ كلمة المرور غير صحيحة، حاول مرة أخرى.")
         return ACCOUNT_PASSWORD
-        
+
     except Exception as e:
-        logger.error(f"Error during sign in with password: {e}")
-        await send_message(
-            update,
-            f"❌ <b>خطأ</b>\n\n"
-            f"فشل في تسجيل الدخول: {str(e)}\n\n"
-            "يرجى المحاولة مرة أخرى لاحقاً.\n\n"
-            "أرسل /cancel لإلغاء هذه العملية."
-        )
-        return ACCOUNT_PASSWORD
+        logger.error(f"2FA error: {e}")
+        await send_message(update, "❌ فشل تسجيل الدخول.")
+        return ConversationHandler.END
+
+    finally:
+        await client.disconnect()
 
 async def cancel_account(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """إلغاء عملية إضافة الحساب."""
