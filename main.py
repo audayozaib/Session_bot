@@ -946,6 +946,8 @@ async def add_account_phone(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         return ACCOUNT_PHONE
 
+# استبدل الدوال التالية في الكود الخاص بك
+
 async def add_account_code(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """معالجة إدخال رمز التحقق."""
     code = update.message.text.strip()
@@ -974,12 +976,13 @@ async def add_account_code(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
         await client.connect()
         
-        # محاولة تسجيل الدخول بالرمز
+        # محاولة تسجيل الدخول بالرمز فقط أولاً
         try:
+            # في الإصدارات الأحدث، نستخدم sign_in مع الرمز فقط
             await client.sign_in(
-                context.user_data["phone"],
-                context.user_data["phone_code_hash"],
-                code
+                phone=context.user_data["phone"],
+                code=code,
+                password=None  # نمرر None لكلمة المرور
             )
             
             # إذا وصلنا إلى هنا، لا يلزم 2FA
@@ -1030,7 +1033,7 @@ async def add_account_code(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return ConversationHandler.END
             
         except errors.SessionPasswordNeededError:
-            # 2FA مطلوب
+            # 2FA مطلوب - نحفظ العميل ونطلب كلمة المرور
             await client.disconnect()
             
             await send_message(
@@ -1070,11 +1073,11 @@ async def add_account_password(update: Update, context: ContextTypes.DEFAULT_TYP
         await client.connect()
         
         # محاولة تسجيل الدخول بالرمز وكلمة المرور
+        # نستخدم الطريقة الصحيحة للإصدارات الأحدث
         await client.sign_in(
-            context.user_data["phone"],
-            context.user_data["phone_code_hash"],
-            context.user_data["code"],
-            password=password
+            phone=context.user_data["phone"],
+            code=context.user_data["code"],
+            password=password  # الآن نمرر كلمة المرور بشكل صحيح
         )
         
         # الحصول على سلسلة الجلسة
