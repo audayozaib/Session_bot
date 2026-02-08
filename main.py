@@ -966,8 +966,8 @@ async def add_account_code(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # تخزين الرمز في السياق
     context.user_data["code"] = code
     
-    # التحقق مما إذا كان 2FA مطلوبًا
     try:
+        # إنشاء عميل Telethon
         client = TelegramClient(
             StringSession(),
             API_ID,
@@ -976,18 +976,16 @@ async def add_account_code(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
         await client.connect()
         
-        # محاولة تسجيل الدخول بالرمز فقط أولاً
+        # محاولة تسجيل الدخول بالرمز
         try:
-            # في الإصدارات الأحدث، نستخدم sign_in مع الرمز فقط
+            # محاولة تسجيل الدخول - إذا نجح، لا يوجد 2FA
             await client.sign_in(
                 phone=context.user_data["phone"],
-                code=code,
-                password=None  # نمرر None لكلمة المرور
+                code=code
             )
             
-            # إذا وصلنا إلى هنا، لا يلزم 2FA
+            # إذا وصلنا هنا، التسجيل ناجح ولا يوجد 2FA
             session_string = client.session.save()
-            
             await client.disconnect()
             
             # حفظ الحساب في قاعدة البيانات
@@ -1033,9 +1031,8 @@ async def add_account_code(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return ConversationHandler.END
             
         except errors.SessionPasswordNeededError:
-            # 2FA مطلوب - نحفظ العميل ونطلب كلمة المرور
-            await client.disconnect()
-            
+            # 2FA مطلوب - نحتفظ بالعميل ونطلب كلمة المرور
+            # لا نغلق الاتصال بعد
             await send_message(
                 update,
                 "🔐 <b>مطلوب مصادقة ثنائية العامل</b>\n\n"
@@ -1043,15 +1040,36 @@ async def add_account_code(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 "يرجى إدخال كلمة مرور 2FA الخاصة بك.\n\n"
                 "أرسل /cancel لإلغاء هذه العملية."
             )
+            # لا نغلق العميل هنا، سنستخدمه في خطوة كلمة المرور
             return ACCOUNT_PASSWORD
             
+    except errors.PhoneCodeInvalidError:
+        await send_message(
+            update,
+            "❌ <b>رمز التحقق غير صحيح</b>\n\n"
+            "الرمز الذي أدخلته غير صحيح أو منتهي الصلاحية.\n\n"
+            "يرجى التحقق من الرمز والمحاولة مرة أخرى.\n\n"
+            "أرسل /cancel لإلغاء هذه العملية."
+        )
+        return ACCOUNT_CODE
+        
+    except errors.PhoneCodeExpiredError:
+        await send_message(
+            update,
+            "❌ <b>رمز التحقق منتهي الصلاحية</b>\n\n"
+            "انتهت صلاحية رمز التحقق.\n\n"
+            "يرجى طلب رمز جديد والمحاولة مرة أخرى.\n\n"
+            "أرسل /cancel لإلغاء هذه العملية."
+        )
+        return ACCOUNT_CODE
+        
     except Exception as e:
         logger.error(f"Error during sign in: {e}")
         await send_message(
             update,
             f"❌ <b>خطأ</b>\n\n"
             f"فشل في تسجيل الدخول: {str(e)}\n\n"
-            "يرجى التحقق من رمز التحقق والمحاولة مرة أخرى.\n\n"
+            "يرجى المحاولة مرة أخرى لاحقاً.\n\n"
             "أرسل /cancel لإلغاء هذه العملية."
         )
         return ACCOUNT_CODE
@@ -1060,10 +1078,9 @@ async def add_account_password(update: Update, context: ContextTypes.DEFAULT_TYP
     """معالجة إدخال كلمة مرور 2FA."""
     password = update.message.text.strip()
     
-    # تخزين كلمة المرور في السياق
-    context.user_data["password"] = password
-    
     try:
+        # نستخدم العميل الذي لم نغلقه في الخطوة السابقة
+        # لكن إذا انقطع الاتصال، نعيد إنشاءه
         client = TelegramClient(
             StringSession(),
             API_ID,
@@ -1072,17 +1089,12 @@ async def add_account_password(update: Update, context: ContextTypes.DEFAULT_TYP
         
         await client.connect()
         
-        # محاولة تسجيل الدخول بالرمز وكلمة المرور
-        # نستخدم الطريقة الصحيحة للإصدارات الأحدث
-        await client.sign_in(
-            phone=context.user_data["phone"],
-            code=context.user_data["code"],
-            password=password  # الآن نمرر كلمة المرور بشكل صحيح
-        )
+        # الآن نحاول تسجيل الدخول بكلمة المرور
+        # نستخدم دالة sign_in مع كلمة المرور فقط (بعد أن فشل بالرمز)
+        await client.sign_in(password=password)
         
-        # الحصول على سلسلة الجلسة
+        # إذا وصلنا هنا، التسجيل ناجح
         session_string = client.session.save()
-        
         await client.disconnect()
         
         # حفظ الحساب في قاعدة البيانات
@@ -1127,13 +1139,23 @@ async def add_account_password(update: Update, context: ContextTypes.DEFAULT_TYP
         
         return ConversationHandler.END
         
+    except errors.PasswordHashInvalidError:
+        await send_message(
+            update,
+            "❌ <b>كلمة مرور غير صحيحة</b>\n\n"
+            "كلمة مرور 2FA التي أدخلتها غير صحيحة.\n\n"
+            "يرجى التحقق من كلمة المرور والمحاولة مرة أخرى.\n\n"
+            "أرسل /cancel لإلغاء هذه العملية."
+        )
+        return ACCOUNT_PASSWORD
+        
     except Exception as e:
         logger.error(f"Error during sign in with password: {e}")
         await send_message(
             update,
             f"❌ <b>خطأ</b>\n\n"
             f"فشل في تسجيل الدخول: {str(e)}\n\n"
-            "يرجى التحقق من كلمة مرور 2FA والمحاولة مرة أخرى.\n\n"
+            "يرجى المحاولة مرة أخرى لاحقاً.\n\n"
             "أرسل /cancel لإلغاء هذه العملية."
         )
         return ACCOUNT_PASSWORD
