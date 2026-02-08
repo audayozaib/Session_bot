@@ -2086,7 +2086,7 @@ async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> N
         )
     except Exception as e:
         logger.error(f"Failed to send error notification to owner: {e}")
-
+# Main function
 def main():
     """بدء البوت."""
     try:
