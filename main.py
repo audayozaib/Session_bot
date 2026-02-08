@@ -746,13 +746,18 @@ async def add_account_phone(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """معالجة إدخال رقم الهاتف."""
     phone = update.message.text.strip()
     
-    # التحقق الأساسي
-    if not phone.startswith('+') or not phone[1:].isdigit():
+    # التحقق الأساسي وتنظيف الرقم
+    phone = phone.replace(' ', '').replace('-', '').replace('(', '').replace(')', '')
+    
+    if not phone.startswith('+'):
+        phone = '+' + phone
+    
+    if not phone[1:].isdigit() or len(phone[1:]) < 10:
         await send_message(
             update,
             "❌ <b>رقم هاتف غير صالح</b>\n\n"
             "يرجى إدخال رقم هاتف صالح مع رمز البلد.\n\n"
-            "مثال: +1234567890\n\n"
+            "مثال: +966501234567\n\n"
             "أرسل /cancel لإلغاء هذه العملية."
         )
         return ACCOUNT_PHONE
@@ -767,22 +772,35 @@ async def add_account_phone(update: Update, context: ContextTypes.DEFAULT_TYPE):
             update,
             "❌ <b>خطأ في الإعدادات</b>\n\n"
             "لم يتم تكوين معرفات API بشكل صحيح.\n\n"
-            "يرجى التحقق من متغيرات البيئة API_ID و API_HASH.",
+            "يرجى التواصل مع المالك.",
         )
         return ConversationHandler.END
+    
+    # إرسال رسالة انتظار
+    wait_message = await send_message(
+        update,
+        "⏳ <b>جاري إرسال رمز التحقق</b>\n\n"
+        "يرجى الانتظار...\n\n"
+        "قد يستغرق هذا بضع ثوانٍ."
+    )
     
     # إنشاء عميل Telethon مؤقت لطلب الرمز
     try:
         logger.info(f"Attempting to send code request to {phone}")
         
-        # إنشاء العميل مع إعدادات إضافية
+        # استخدام جلسة مؤقتة
+        session_name = f"temp_session_{update.effective_user.id}"
+        
+        # إنشاء العميل مع إعدادات محسنة
         client = TelegramClient(
-            StringSession(),
+            session_name,
             API_ID,
             API_HASH,
-            timeout=30,
-            connection_retries=3,
-            retry_delay=2
+            timeout=60,
+            connection_retries=5,
+            retry_delay=1,
+            device_model="Telegram Account Manager Bot",
+            system_version="1.0"
         )
         
         # الاتصال بالخادم
@@ -793,73 +811,103 @@ async def add_account_phone(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if not await client.is_connected():
             raise Exception("Failed to connect to Telegram servers")
         
+        # التحقق إذا كان المستخدم مسجل بالفعل
+        try:
+            await client.get_me()
+            logger.info("User is already registered, sending code anyway")
+        except:
+            logger.info("User needs to register")
+        
         # طلب الرمز
         logger.info(f"Sending code request to {phone}")
         result = await client.send_code_request(phone)
         logger.info(f"Code request sent successfully to {phone}")
         
-        # التأكد من إغلاق الاتصال
+        # التأكد من إغلاق الاتصال وحذف الجلسة المؤقتة
         await client.disconnect()
-        logger.info("Disconnected from Telegram servers")
+        await client.delete_session(session_name)
+        logger.info("Disconnected and cleaned up session")
+        
+        # تحديث رسالة الانتظار
+        await wait_message.edit_text(
+            "✅ <b>تم إرسال رمز التحقق</b>\n\n"
+            "تم إرسال رمز التحقق إلى حساب تيليجرام الخاص بك.\n\n"
+            "يرجى إدخال الرمز المكون من 5 أرقام.\n\n"
+            "ملاحظات مهمة:\n"
+            "• تحقق من تطبيق تيليجرام\n"
+            "• قد يصل الرمز بعد دقيقة واحدة\n"
+            "• لا تشارك الرمز مع أحد\n\n"
+            "أرسل /cancel لإلغاء هذه العملية."
+        )
         
         # تخزين تجزئة رمز الهاتف للتحقق
         context.user_data["phone_code_hash"] = result.phone_code_hash
         
-        await send_message(
-            update,
-            "✅ <b>تم إرسال رمز التحقق</b>\n\n"
-            "تم إرسال رمز التحقق إلى حساب تيليجرام الخاص بك.\n\n"
-            "يرجى إدخال الرمز الذي تلقيته.\n\n"
-            "ملاحظة: قد يستغرق وصول الرمز بضع دقائق.\n\n"
-            "أرسل /cancel لإلغاء هذه العملية."
-        )
         return ACCOUNT_CODE
         
     except errors.FloodWaitError as e:
-        # التعامل مع حد Flood
         wait_time = e.seconds
         logger.error(f"Flood wait error: {wait_time} seconds")
-        await send_message(
-            update,
+        
+        # تحويل الثواني إلى صيغة مقروءة
+        if wait_time < 60:
+            wait_str = f"{wait_time} ثانية"
+        elif wait_time < 3600:
+            wait_str = f"{wait_time // 60} دقيقة و {wait_time % 60} ثانية"
+        else:
+            wait_str = f"{wait_time // 3600} ساعة و {(wait_time % 3600) // 60} دقيقة"
+        
+        await wait_message.edit_text(
             f"⏳ <b>انتظار مطلوب</b>\n\n"
             f"تلقى تيليجرام طلبات كثيرة جدًا.\n\n"
-            f"يرجى الانتظار {wait_time} ثانية ثم المحاولة مرة أخرى.\n\n"
+            f"يرجى الانتظار {wait_str} ثم المحاولة مرة أخرى.\n\n"
             f"أرسل /cancel لإلغاء هذه العملية."
         )
         return ConversationHandler.END
         
     except errors.PhoneNumberInvalidError:
         logger.error(f"Invalid phone number: {phone}")
-        await send_message(
-            update,
+        await wait_message.edit_text(
             "❌ <b>رقم هاتف غير صالح</b>\n\n"
             "رقم الهاتف الذي أدخلته غير صالح أو غير مسجل في تيليجرام.\n\n"
-            "يرجى التحقق من الرقم والمحاولة مرة أخرى.\n\n"
+            "يرجى التحقق من:\n"
+            "• الرقم مكتوب بشكل صحيح\n"
+            "• الرقم مسجل في تيليجرام\n"
+            "• يتضمن رمز البلد (+966 للسعودية مثلاً)\n\n"
             "أرسل /cancel لإلغاء هذه العملية."
         )
         return ACCOUNT_PHONE
         
     except errors.ApiIdInvalidError:
         logger.error("Invalid API_ID or API_HASH")
-        await send_message(
-            update,
-            "❌ <b>خطأ في API</b>\n\n"
-            "معرف API أو تجزئة API غير صالحة.\n\n"
-            "يرجى التحقق من إعدادات البوت.",
+        await wait_message.edit_text(
+            "❌ <b>خطأ في الإعدادات</b>\n\n"
+            "معرفات API غير صالحة.\n\n"
+            "يرجى التواصل مع المالك لإصلاح المشكلة.",
+        )
+        return ConversationHandler.END
+        
+    except errors.PhoneNumberBannedError:
+        logger.error(f"Phone number banned: {phone}")
+        await wait_message.edit_text(
+            "❌ <b>رقم الهاتف محظور</b>\n\n"
+            "هذا الرقم محظور من قبل تيليجرام.\n\n"
+            "يرجى استخدام رقم آخر.\n\n"
+            "أرسل /cancel لإلغاء هذه العملية."
         )
         return ConversationHandler.END
         
     except Exception as e:
         logger.error(f"Error sending code request: {str(e)}", exc_info=True)
-        await send_message(
-            update,
-            f"❌ <b>خطأ</b>\n\n"
-            f"فشل في إرسال رمز التحقق: {str(e)}\n\n"
-            "يرجى التحقق من:\n"
-            "1. رقم الهاتف صحيح ومسجل في تيليجرام\n"
-            "2. إعدادات API صحيحة\n"
-            "3. الاتصال بالإنترنت يعمل\n\n"
-            "أرسل /cancel لإلغاء هذه العملية."
+        await wait_message.edit_text(
+            f"❌ <b>حدث خطأ</b>\n\n"
+            f"فشل في إرسال رمز التحقق.\n\n"
+            "السبب المحتمل:\n"
+            "• مشكلة في الاتصال بالإنترنت\n"
+            "• خادم تيليجرام لا يستجيب\n"
+            "• رقم الهاتف غير صحيح\n\n"
+            "يرجى المحاولة مرة أخرى لاحقاً.\n\n"
+            f"أرسل /cancel لإلغاء هذه العملية."
         )
         return ConversationHandler.END
 
@@ -1054,6 +1102,16 @@ async def add_account_password(update: Update, context: ContextTypes.DEFAULT_TYP
 
 async def cancel_account(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """إلغاء عملية إضافة الحساب."""
+    # تنظيف بيانات المستخدم المؤقتة
+    if "phone" in context.user_data:
+        del context.user_data["phone"]
+    if "phone_code_hash" in context.user_data:
+        del context.user_data["phone_code_hash"]
+    if "code" in context.user_data:
+        del context.user_data["code"]
+    if "password" in context.user_data:
+        del context.user_data["password"]
+    
     # إنشاء لوحة مفاتيح مع الخيارات
     keyboard = [
         [InlineKeyboardButton("📱 حساباتي", callback_data="accounts")],
@@ -1063,8 +1121,8 @@ async def cancel_account(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await send_message(
         update,
         "❌ <b>تم إلغاء العملية</b>\n\n"
-        "تم إلغاء عملية إضافة الحساب.\n\n"
-        "استخدم /accounts لإدارة حساباتك.",
+        "تم إلغاء عملية إضافة الحساب بنجاح.\n\n"
+        "يمكنك البدء مرة أخرى عند الضرورة.",
         reply_markup=InlineKeyboardMarkup(keyboard)
     )
     return ConversationHandler.END
@@ -2013,6 +2071,7 @@ async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> N
         logger.error(f"Failed to send error notification to owner: {e}")
 
 # Main function
+# Main function
 def main():
     """بدء البوت."""
     # إنشاء التطبيق
@@ -2038,6 +2097,37 @@ def main():
     # إنشاء المجموعات
     application.add_handler(CommandHandler("groups", groups_command))
     
+    # دالة الإلغاء العامة
+    async def cancel_any(update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """إلغاء أي محادثة قيد التشغيل."""
+        # تنظيف بيانات المستخدم المؤقتة
+        keys_to_remove = ["phone", "phone_code_hash", "code", "password", 
+                          "group_name", "group_count", "group_delay",
+                          "session_account_id", "session_phone", "session_phone_code_hash",
+                          "adding_account", "creating_groups"]
+        
+        for key in keys_to_remove:
+            if key in context.user_data:
+                del context.user_data[key]
+        
+        # إنشاء لوحة مفاتيح مع الخيارات
+        keyboard = [
+            [InlineKeyboardButton("📱 حساباتي", callback_data="accounts")],
+            [InlineKeyboardButton("👥 المجموعات", callback_data="groups")],
+            [InlineKeyboardButton("📊 حالتي", callback_data="status")],
+            [InlineKeyboardButton("📊 إحصائياتي", callback_data="stats")],
+            [InlineKeyboardButton("⬅️ العودة للقائمة الرئيسية", callback_data="main_menu")]
+        ]
+        
+        await send_message(
+            update,
+            "❌ <b>تم إلغاء العملية</b>\n\n"
+            "تم إلغاء العملية الحالية بنجاح.\n\n"
+            "يمكنك اختيار خيار آخر من الأزرار أدناه:",
+            reply_markup=InlineKeyboardMarkup(keyboard)
+        )
+        return ConversationHandler.END
+    
     # معالج محادثة الحساب
     account_conv_handler = ConversationHandler(
         entry_points=[
@@ -2045,14 +2135,24 @@ def main():
             CallbackQueryHandler(button_callback, pattern="^add_account$"),
         ],
         states={
-            ACCOUNT_PHONE: [MessageHandler(filters.TEXT & ~filters.COMMAND, add_account_phone)],
-            ACCOUNT_CODE: [MessageHandler(filters.TEXT & ~filters.COMMAND, add_account_code)],
-            ACCOUNT_PASSWORD: [MessageHandler(filters.TEXT & ~filters.COMMAND, add_account_password)],
+            ACCOUNT_PHONE: [
+                MessageHandler(filters.TEXT & ~filters.COMMAND, add_account_phone),
+                CommandHandler("cancel", cancel_any)
+            ],
+            ACCOUNT_CODE: [
+                MessageHandler(filters.TEXT & ~filters.COMMAND, add_account_code),
+                CommandHandler("cancel", cancel_any)
+            ],
+            ACCOUNT_PASSWORD: [
+                MessageHandler(filters.TEXT & ~filters.COMMAND, add_account_password),
+                CommandHandler("cancel", cancel_any)
+            ],
         },
-        fallbacks=[CommandHandler("cancel", cancel_account)],
-        per_message=True,  # تم تغيير هذه القيمة لإصلاح التحذير
+        fallbacks=[CommandHandler("cancel", cancel_any)],
+        per_message=True,
+        allow_reentry=True,  # السماح بإعادة الدخول
+        name="account_conversation"  # اسم فريد للمحادثة
     )
-    application.add_handler(account_conv_handler)
     
     # معالج محادثة إنشاء المجموعات
     group_conv_handler = ConversationHandler(
@@ -2061,23 +2161,52 @@ def main():
             CallbackQueryHandler(button_callback, pattern="^create_groups$"),
         ],
         states={
-            GROUP_NAME: [MessageHandler(filters.TEXT & ~filters.COMMAND, create_groups_name)],
-            GROUP_COUNT: [MessageHandler(filters.TEXT & ~filters.COMMAND, create_groups_count)],
-            GROUP_DELAY: [MessageHandler(filters.TEXT & ~filters.COMMAND, create_groups_delay)],
+            GROUP_NAME: [
+                MessageHandler(filters.TEXT & ~filters.COMMAND, create_groups_name),
+                CommandHandler("cancel", cancel_any)
+            ],
+            GROUP_COUNT: [
+                MessageHandler(filters.TEXT & ~filters.COMMAND, create_groups_count),
+                CommandHandler("cancel", cancel_any)
+            ],
+            GROUP_DELAY: [
+                MessageHandler(filters.TEXT & ~filters.COMMAND, create_groups_delay),
+                CommandHandler("cancel", cancel_any)
+            ],
         },
-        fallbacks=[CommandHandler("cancel", cancel_groups)],
-        per_message=True,  # تم تغيير هذه القيمة لإصلاح التحذير
+        fallbacks=[CommandHandler("cancel", cancel_any)],
+        per_message=True,
+        allow_reentry=True,  # السماح بإعادة الدخول
+        name="group_conversation"  # اسم فريد للمحادثة
     )
+    
+    # إضافة معالجات المحادثة
+    application.add_handler(account_conv_handler)
     application.add_handler(group_conv_handler)
     
-    # معالج استدعاء الأزرار
+    # معالج استدعاء الأزرار (يجب أن يكون بعد معالجات المحادثة)
     application.add_handler(CallbackQueryHandler(button_callback))
     
     # معالج الأخطاء
     application.add_error_handler(error_handler)
     
+    # رسالة بدء التشغيل
+    logger.info("Starting Telegram Account Manager Bot...")
+    logger.info(f"Bot Token: {BOT_TOKEN[:10]}...")
+    logger.info(f"Owner ID: {OWNER_ID}")
+    logger.info(f"API ID: {API_ID}")
+    logger.info(f"API Hash: {API_HASH[:10]}...")
+    
     # تشغيل البوت
-    application.run_polling()
-
-if __name__ == "__main__":
-    main()
+    try:
+        application.run_polling(
+            drop_pending_updates=True,  # تجاهل التحديثات المعلقة
+            allowed_updates=Update.ALL_TYPES,
+            timeout=30
+        )
+    except KeyboardInterrupt:
+        logger.info("Bot stopped by user")
+    except Exception as e:
+        logger.error(f"Error running bot: {e}")
+    finally:
+        logger.info("Bot shutdown complete")
