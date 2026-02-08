@@ -746,25 +746,22 @@ async def add_account_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
     return ACCOUNT_PHONE
 
+# استبدل دالة add_account_phone بالكود التالي
+
 async def add_account_phone(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """معالجة إدخال رقم الهاتف."""
     try:
-        # طباعة معلومات للتصحيح
-        logger.info(f"Received phone number input: {update.message.text}")
-        print(f"📱 Received phone: {update.message.text}")
-        
         phone = update.message.text.strip()
         
         # التحقق الأساسي وتنظيف الرقم
         original_phone = phone
-        phone = phone.replace(' ', '').replace('-', '').replace('(', '').replace(')', '').replace('+', '')
+        phone = phone.replace(' ', '').replace('-', '').replace('(', '').replace(')', '')
         
         # إضافة + إذا لم يكن موجوداً
         if not original_phone.startswith('+'):
             phone = '+' + phone
         
         logger.info(f"Cleaned phone number: {phone}")
-        print(f"🔧 Cleaned phone: {phone}")
         
         # التحقق من صحة الرقم
         if not phone.startswith('+') or not phone[1:].isdigit() or len(phone[1:]) < 10:
@@ -783,7 +780,6 @@ async def add_account_phone(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
         # تخزين رقم الهاتف في السياق
         context.user_data["phone"] = phone
-        logger.info(f"Phone stored in context: {phone}")
         
         # التحقق من قيم API
         if API_ID == 0 or not API_HASH:
@@ -805,46 +801,30 @@ async def add_account_phone(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "قد يستغرق هذا بضع ثوانٍ."
         )
         
-        logger.info("Attempting to send code request...")
-        print("📡 Sending code request...")
-        
-        # استخدام جلسة مؤقتة باسم فريد
-        session_name = f"temp_session_{update.effective_user.id}_{uuid.uuid4().hex[:8]}"
-        
-        # إنشاء العميل مع إعدادات محسنة
+        # استخدام جلسة مؤقتة في الذاكرة فقط
         client = TelegramClient(
-            session_name,
+            None,  # لا نستخدم جلسة ملفات
             API_ID,
             API_HASH,
-            timeout=60,
-            connection_retries=3,
-            retry_delay=2,
-            device_model="Telegram Account Manager",
-            app_version="1.0",
-            system_version="Windows 10"
+            timeout=30,
+            connection_retries=2,
+            retry_delay=1
         )
         
-        logger.info(f"Created client with session: {session_name}")
-        
-        # الاتصال بالخادم
-        await client.connect()
-        logger.info("Connected to Telegram servers")
-        print("✅ Connected to Telegram")
-        
-        # التحقق من الاتصال
-        if not await client.is_connected():
-            raise Exception("Failed to connect to Telegram servers")
-        
-        # محاولة إرسال الرمز
         try:
+            # الاتصال بالخادم
+            await client.connect()
+            
+            if not await client.is_connected():
+                raise Exception("Failed to connect to Telegram servers")
+            
+            # محاولة إرسال الرمز
             logger.info(f"Sending code to: {phone}")
             result = await client.send_code_request(phone)
             logger.info("Code sent successfully!")
-            print("✅ Code sent successfully!")
             
             # تخزين تجزئة رمز الهاتف
             context.user_data["phone_code_hash"] = result.phone_code_hash
-            logger.info("Phone code hash stored")
             
             # تحديث رسالة الانتظار
             await wait_message.edit_text(
@@ -865,7 +845,6 @@ async def add_account_phone(update: Update, context: ContextTypes.DEFAULT_TYPE):
             
         except errors.FloodWaitError as e:
             wait_time = e.seconds
-            logger.error(f"Flood wait: {wait_time} seconds")
             
             # تحويل الثواني إلى صيغة مقروءة
             if wait_time < 60:
@@ -904,23 +883,42 @@ async def add_account_phone(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
             return ConversationHandler.END
             
+        except errors.AuthKeyPermEmptyError:
+            logger.error("Auth key error - trying to regenerate")
+            await wait_message.edit_text(
+                "❌ <b>خطأ في المصادقة</b>\n\n"
+                "حدث خطأ في مفاتيح المصادقة.\n\n"
+                "يرجى المحاولة مرة أخرى بعد قليل.\n\n"
+                "أرسل /cancel لإلغاء هذه العملية."
+            )
+            return ConversationHandler.END
+            
         except Exception as e:
             logger.error(f"Error sending code: {str(e)}", exc_info=True)
+            error_msg = str(e)
+            
+            # معالجة أخطاء شائعة
+            if "network" in error_msg.lower() or "connection" in error_msg.lower():
+                error_msg = "مشكلة في الاتصال بالإنترنت"
+            elif "timeout" in error_msg.lower():
+                error_msg = "انتهت مهلة الاتصال"
+            elif "blocked" in error_msg.lower():
+                error_msg = "تم حظر الرقم"
+            
             await wait_message.edit_text(
                 f"❌ <b>حدث خطأ</b>\n\n"
                 f"لم يتم إرسال الرمز.\n\n"
-                f"الخطأ: {str(e)}\n\n"
+                f"الخطأ: {error_msg}\n\n"
                 "يرجى المحاولة مرة أخرى لاحقاً.\n\n"
                 "أرسل /cancel لإلغاء هذه العملية."
             )
             return ConversationHandler.END
             
         finally:
-            # التأكد من إغلاق الاتصال وحذف الجلسة
+            # التأكد من إغلاق الاتصال
             try:
-                await client.disconnect()
-                await client.delete_session(session_name)
-                logger.info("Cleaned up session")
+                if client.is_connected():
+                    await client.disconnect()
             except:
                 pass
                 
