@@ -787,7 +787,7 @@ async def add_account_phone(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return ConversationHandler.END
 
 async def add_account_code(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """معالجة إدخال كود التحقق."""
+    """معالجة إدخال كود التحقق مع إعادة الإرسال عند انتهاء الصلاحية."""
     code = update.message.text.strip().replace(' ', '')
 
     phone = context.user_data.get("phone")
@@ -828,19 +828,39 @@ async def add_account_code(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     except errors.SessionPasswordNeededError:
         context.user_data["session"] = client.session.save()
-        await wait_msg.edit_text("🔐 الحساب محمي بـ 2FA\nأرسل كلمة المرور:")
+        await wait_msg.edit_text("🔐 الحساب محمي بالتحقق بخطوتين.\nأرسل كلمة المرور:")
         return ACCOUNT_PASSWORD
 
     except errors.PhoneCodeExpiredError:
-        await wait_msg.edit_text("❌ انتهت صلاحية الكود.")
-        return ConversationHandler.END
+        await wait_msg.edit_text("♻️ انتهت صلاحية الكود، جارٍ إرسال كود جديد...")
+
+        await client.disconnect()
+
+        new_session = StringSession()
+        new_client = TelegramClient(new_session, API_ID, API_HASH)
+        await new_client.connect()
+
+        result = await new_client.send_code_request(phone)
+
+        context.user_data["phone_code_hash"] = result.phone_code_hash
+        context.user_data["session"] = new_session.save()
+
+        await new_client.disconnect()
+
+        await update.message.reply_text(
+            "📩 تم إرسال كود جديد.\n"
+            "أرسل رمز التحقق الجديد:"
+        )
+
+        return ACCOUNT_CODE
 
     except Exception as e:
-        await wait_msg.edit_text(f"❌ خطأ: {str(e)}")
+        await wait_msg.edit_text(f"❌ حدث خطأ: {str(e)}")
         return ConversationHandler.END
 
     finally:
-        await client.disconnect()
+        if client.is_connected():
+            await client.disconnect()
 
 async def add_account_password(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """معالجة كلمة مرور التحقق الثنائي."""
