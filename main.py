@@ -201,20 +201,22 @@ def owner_only(func):
     return wrapped
 
 # Helper function for sending messages
+# Helper function for sending messages
 async def send_message(update: Update, text: str, reply_markup=None):
     """دالة مساعدة لإرسال رسالة، معالجة كل من الرسائل والاستدعاءات."""
     if update.message:
-        await update.message.reply_text(
+        return await update.message.reply_text(
             text=text,
             reply_markup=reply_markup,
             parse_mode=ParseMode.HTML
         )
     elif update.callback_query:
-        await update.callback_query.message.reply_text(
+        return await update.callback_query.message.reply_text(
             text=text,
             reply_markup=reply_markup,
             parse_mode=ParseMode.HTML
         )
+    return None
 
 # Command handlers
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -790,9 +792,8 @@ async def add_account_phone(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
             return ConversationHandler.END
         
-        # إرسال رسالة انتظار
-        wait_message = await send_message(
-            update,
+        # إرسال رسالة انتظار - نستخدم update.message.reply_text مباشرة للحصول على كائن الرسالة
+        wait_message = await update.message.reply_text(
             "⏳ <b>جاري إرسال رمز التحقق</b>\n\n"
             f"الرقم: {phone}\n"
             "يرجى الانتظار...\n\n"
@@ -813,7 +814,8 @@ async def add_account_phone(update: Update, context: ContextTypes.DEFAULT_TYPE):
             # الاتصال بالخادم
             await client.connect()
             
-            if not await client.is_connected():
+            # إصلاح: is_connected() ليست دالة غير متزامنة في بعض إصدارات Telethon
+            if not client.is_connected():
                 raise Exception("Failed to connect to Telegram servers")
             
             # محاولة إرسال الرمز
@@ -944,113 +946,6 @@ async def add_account_phone(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "أرسل /cancel لإلغاء هذه العملية."
         )
         return ACCOUNT_PHONE
-
-async def add_account_code(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """معالجة إدخال رمز التحقق."""
-    code = update.message.text.strip()
-    
-    # التحقق الأساسي
-    if not code.isdigit():
-        await send_message(
-            update,
-            "❌ <b>رمز غير صالح</b>\n\n"
-            "يجب أن يحتوي رمز التحقق على أرقام فقط.\n\n"
-            "يرجى المحاولة مرة أخرى.\n\n"
-            "أرسل /cancel لإلغاء هذه العملية."
-        )
-        return ACCOUNT_CODE
-    
-    # تخزين الرمز في السياق
-    context.user_data["code"] = code
-    
-    # التحقق مما إذا كان 2FA مطلوبًا
-    try:
-        client = TelegramClient(
-            StringSession(),
-            API_ID,
-            API_HASH
-        )
-        
-        await client.connect()
-        
-        # محاولة تسجيل الدخول بالرمز
-        try:
-            await client.sign_in(
-                context.user_data["phone"],
-                context.user_data["phone_code_hash"],
-                code
-            )
-            
-            # إذا وصلنا إلى هنا، لا يلزم 2FA
-            session_string = client.session.save()
-            
-            await client.disconnect()
-            
-            # حفظ الحساب في قاعدة البيانات
-            user_id = update.effective_user.id
-            phone = context.user_data["phone"]
-            
-            account_data = {
-                "user_id": user_id,
-                "phone_number": phone,
-                "session_data": encrypt_data(session_string),
-                "created_at": datetime.datetime.now()
-            }
-            
-            account_id = accounts_collection.insert_one(account_data).inserted_id
-            
-            # تسجيل الحدث
-            log_event("account_added", f"Account {phone} added for user {user_id}", user_id)
-            
-            # إعلام المالك
-            await notify_owner(
-                context,
-                f"📱 <b>حساب جديد مضاف</b>\n\n"
-                f"المستخدم: {update.effective_user.first_name} (@{update.effective_user.username})\n"
-                f"الحساب: {phone}\n"
-                f"معرف الحساب: {account_id}"
-            )
-            
-            # إنشاء لوحة مفاتيح مع الخيارات
-            keyboard = [
-                [InlineKeyboardButton("📱 حساباتي", callback_data="accounts")],
-                [InlineKeyboardButton("⬅️ العودة للقائمة الرئيسية", callback_data="main_menu")]
-            ]
-            
-            await send_message(
-                update,
-                "✅ <b>تمت إضافة الحساب بنجاح</b>\n\n"
-                f"تمت إضافة حسابك {phone} إلى البوت.\n\n"
-                "يمكنك الآن استخدام هذا الحساب لإنشاء المجموعات والميزات الأخرى.\n\n"
-                "استخدم /accounts لإدارة حساباتك.",
-                reply_markup=InlineKeyboardMarkup(keyboard)
-            )
-            
-            return ConversationHandler.END
-            
-        except errors.SessionPasswordNeededError:
-            # 2FA مطلوب
-            await client.disconnect()
-            
-            await send_message(
-                update,
-                "🔐 <b>مطلوب مصادقة ثنائية العامل</b>\n\n"
-                "هذا الحساب لديه 2FA مفعّل.\n\n"
-                "يرجى إدخال كلمة مرور 2FA الخاصة بك.\n\n"
-                "أرسل /cancel لإلغاء هذه العملية."
-            )
-            return ACCOUNT_PASSWORD
-            
-    except Exception as e:
-        logger.error(f"Error during sign in: {e}")
-        await send_message(
-            update,
-            f"❌ <b>خطأ</b>\n\n"
-            f"فشل في تسجيل الدخول: {str(e)}\n\n"
-            "يرجى التحقق من رمز التحقق والمحاولة مرة أخرى.\n\n"
-            "أرسل /cancel لإلغاء هذه العملية."
-        )
-        return ACCOUNT_CODE
 
 async def add_account_password(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """معالجة إدخال كلمة مرور 2FA."""
