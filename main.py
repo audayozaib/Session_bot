@@ -2122,20 +2122,8 @@ def main():
             print(f"❌ Failed to connect to MongoDB: {e}")
             return
         
-        # بناء التطبيق مع إعدادات المهلة الصحيحة
-        application = (
-            Application.builder()
-            .token(BOT_TOKEN)
-            .get_updates_connection_timeout(30)
-            .get_updates_pool_timeout(30)
-            .get_updates_read_timeout(30)
-            .get_updates_write_timeout(30)
-            .connect_timeout(30)
-            .pool_timeout(30)
-            .read_timeout(30)
-            .write_timeout(30)
-            .build()
-        )
+        # بناء التطبيق (الطريقة القديمة المتوافقة مع جميع الإصدارات)
+        application = Application.builder().token(BOT_TOKEN).build()
         
         # دالة الإلغاء العامة
         async def cancel_any(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -2256,11 +2244,19 @@ def main():
         logger.info("Starting Telegram Account Manager Bot...")
         print("🚀 Starting bot...")
         
-        # تشغيل البوت
+        # تشغيل البوت مع المهلات القديمة
         print("⏳ Bot is running... Press Ctrl+C to stop")
         print("=" * 50)
         
-        application.run_polling(drop_pending_updates=True)
+        application.run_polling(
+            drop_pending_updates=True,
+            allowed_updates=Update.ALL_TYPES,
+            timeout=30,
+            read_timeout=30,
+            write_timeout=30,
+            connect_timeout=30,
+            pool_timeout=30
+        )
         
     except KeyboardInterrupt:
         logger.info("Bot stopped by user")
