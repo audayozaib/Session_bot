@@ -223,6 +223,7 @@ class ControlEngine:
             logger.error(f"Failed to terminate session for {phone}: {e}")
 
 # --- البوت الرئيسي ---
+# --- البوت الرئيسي ---
 class UltimateBot:
     """الفئة الرئيسية للبوت"""
     
@@ -238,15 +239,21 @@ class UltimateBot:
             await self.bot.start(bot_token=BOT_TOKEN)
             self._setup_handlers()
             
-            # بدء مراقبة جميع الحسابات المراقبة
-            async for acc in self.db.get_monitored_accounts():
+            # --- بداية التصحيح ---
+            # جلب قائمة الحسابات المراقبة أولاً
+            monitored_accounts = await self.db.get_monitored_accounts()
+            # ثم المرور عليها باستخدام حلقة for عادية
+            for acc in monitored_accounts:
                 await self.engine.start_monitor(acc)
+            # --- نهاية التصحيح ---
             
             logger.info("Bot started successfully")
             await self.bot.run_until_disconnected()
         except Exception as e:
             logger.error(f"Error starting bot: {e}")
             sys.exit(1)
+
+    # ... باقي الكود يبقى كما هو ...
 
     def _setup_handlers(self):
         """إعداد معالجات الأحداث"""
